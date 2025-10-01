@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="waterGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a9eff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2563eb;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Pool background -->
+  <rect width="100" height="100" rx="20" fill="url(#waterGradient)"/>
+  
+  <!-- Swimming person -->
+  <circle cx="50" cy="35" r="8" fill="white" opacity="0.9"/>
+  <path d="M 42 45 Q 50 40 58 45 L 58 50 Q 50 55 42 50 Z" fill="white" opacity="0.9"/>
+  
+  <!-- Water waves -->
+  <path d="M 10 65 Q 20 62 30 65 T 50 65 T 70 65 T 90 65" 
+        stroke="white" stroke-width="2" fill="none" opacity="0.6"/>
+  <path d="M 10 75 Q 20 72 30 75 T 50 75 T 70 75 T 90 75" 
+        stroke="white" stroke-width="2" fill="none" opacity="0.4"/>
+  <path d="M 10 85 Q 20 82 30 85 T 50 85 T 70 85 T 90 85" 
+        stroke="white" stroke-width="2" fill="none" opacity="0.3"/>
+</svg>
