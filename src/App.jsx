@@ -17,6 +17,15 @@ const AquaSync = () => {
   const [newUser, setNewUser] = useState({ username: '', password: '', name: '' });
   const [loading, setLoading] = useState(true);
 
+  // Function to reload lessons from database
+  const reloadLessons = async () => {
+    const { data: lessonsData, error: lessonsError } = await getLessons();
+    if (!lessonsError && lessonsData) {
+      setLessons(lessonsData);
+    }
+    return { data: lessonsData, error: lessonsError };
+  };
+
   // Load initial data from Supabase
   useEffect(() => {
     const loadInitialData = async () => {
@@ -29,10 +38,7 @@ const AquaSync = () => {
       }
 
       // Load lessons
-      const { data: lessonsData, error: lessonsError } = await getLessons();
-      if (!lessonsError && lessonsData) {
-        setLessons(lessonsData);
-      }
+      await reloadLessons();
 
       setLoading(false);
     };
@@ -178,8 +184,8 @@ const AquaSync = () => {
             if (!day) return <div key={`empty-${index}`} />;
             
             const dateKey = formatDateKey(day);
-            const lesson = lessons[dateKey];
-            const hasLesson = lesson && (lesson.pool || lesson.classroom);
+            const dayLessons = lessons[dateKey] || [];
+            const hasLesson = dayLessons.length > 0;
             const isSelected = selectedDate === dateKey;
 
             return (
@@ -195,13 +201,18 @@ const AquaSync = () => {
                 <div className="font-semibold text-gray-700">{day.getDate()}</div>
                 {hasLesson && (
                   <div className="mt-1 space-y-1">
-                    <div className="flex items-center gap-1 text-xs">
-                      <span className="font-mono font-semibold text-gray-700">{lesson.time}</span>
-                      {lesson.pool && <Waves className="w-4 h-4 text-blue-600" />}
-                      {lesson.classroom && <School className="w-4 h-4 text-green-600" />}
-                    </div>
-                    {lesson.teachers && lesson.teachers.length > 0 && (
-                      <div className="text-xs text-gray-600">{lesson.teachers.length} 👤</div>
+                    {dayLessons.slice(0, 2).map((lesson, idx) => (
+                      <div key={idx} className="flex items-center gap-1 text-xs">
+                        <span className="font-mono font-semibold text-gray-700">{lesson.time}</span>
+                        {lesson.pool && <Waves className="w-4 h-4 text-blue-600" />}
+                        {lesson.classroom && <School className="w-4 h-4 text-green-600" />}
+                      </div>
+                    ))}
+                    {dayLessons.length > 2 && (
+                      <div className="text-xs text-gray-500">+{dayLessons.length - 2} altre</div>
+                    )}
+                    {dayLessons.some(l => l.teachers && l.teachers.length > 0) && (
+                      <div className="text-xs text-gray-600">👤 {dayLessons.reduce((total, l) => total + (l.teachers?.length || 0), 0)}</div>
                     )}
                   </div>
                 )}
@@ -216,56 +227,102 @@ const AquaSync = () => {
   // Lesson detail panel
   const LessonPanel = () => {
     // All hooks must be called before any early returns
-    const lesson = selectedDate ? (lessons[selectedDate] || { time: '09:00', pool: false, classroom: false, description: '', teachers: [] }) : { time: '09:00', pool: false, classroom: false, description: '', teachers: [] };
+    const dayLessons = selectedDate ? (lessons[selectedDate] || []) : [];
+    const hasLessons = dayLessons.length > 0;
 
-    // Auto-enable editing for admin when lesson is empty
-    const isEmptyLesson = !lesson.pool && !lesson.classroom && !lesson.description;
-    const shouldAutoEdit = currentUser.role === 'admin' && isEmptyLesson && selectedDate;
+    // Auto-enable editing for admin when no lessons exist
+    const shouldAutoEdit = currentUser.role === 'admin' && !hasLessons && selectedDate;
 
     const [editing, setEditing] = useState(shouldAutoEdit);
-    const [formData, setFormData] = useState(lesson);
+    const [selectedLessonIndex, setSelectedLessonIndex] = useState(0);
+    const [formData, setFormData] = useState({ time: '09:00', pool: false, classroom: false, description: '', teachers: [] });
+    const [isCreatingNew, setIsCreatingNew] = useState(false);
+
+    // Current lesson for display/editing
+    const currentLesson = hasLessons ? dayLessons[selectedLessonIndex] || dayLessons[0] : null;
 
     // Local state for teacher notes to avoid losing focus
-    const [localNote, setLocalNote] = useState(lesson.teachers?.find(t => t.name === currentUser.name)?.note || '');
+    const [localNote, setLocalNote] = useState('');
 
     // Reset editing state when date changes
     useEffect(() => {
       if (!selectedDate) return;
 
-      const currentLesson = lessons[selectedDate] || { time: '09:00', pool: false, classroom: false, description: '', teachers: [] };
-      const isEmptyLesson = !currentLesson.pool && !currentLesson.classroom && !currentLesson.description;
-      const shouldAutoEdit = currentUser.role === 'admin' && isEmptyLesson;
+      const dayLessons = lessons[selectedDate] || [];
+      const hasLessons = dayLessons.length > 0;
+      const shouldAutoEdit = currentUser.role === 'admin' && !hasLessons;
 
       setEditing(shouldAutoEdit);
-      setFormData(currentLesson);
-      setLocalNote(currentLesson.teachers?.find(t => t.name === currentUser.name)?.note || '');
+      setSelectedLessonIndex(0);
+      setIsCreatingNew(false);
+
+      if (hasLessons) {
+        setFormData(dayLessons[0]);
+        setLocalNote(dayLessons[0].teachers?.find(t => t.name === currentUser.name)?.note || '');
+      } else {
+        setFormData({ time: '09:00', pool: false, classroom: false, description: '', teachers: [] });
+        setLocalNote('');
+        setIsCreatingNew(shouldAutoEdit);
+      }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedDate, lessons, currentUser.role, currentUser.name]);
+
+    // Update local note when lesson selection changes
+    useEffect(() => {
+      if (currentLesson) {
+        setLocalNote(currentLesson.teachers?.find(t => t.name === currentUser.name)?.note || '');
+        setFormData(currentLesson);
+      }
+    }, [selectedLessonIndex, currentLesson, currentUser.name]);
 
     // Early return after all hooks
     if (!selectedDate) return null;
 
-    const saveLesson = () => {
-      setLessons({...lessons, [selectedDate]: formData});
+    const saveLesson = async () => {
+      if (isCreatingNew || !currentLesson) {
+        // Create new lesson
+        const lessonWithCreator = { ...formData, created_by: currentUser.id };
+        const { data, error } = await createLesson(lessonWithCreator, selectedDate);
+        if (!error && data) {
+          await reloadLessons();
+          setIsCreatingNew(false);
+        }
+      } else {
+        // Update existing lesson
+        const { data, error } = await updateLesson(currentLesson.id, formData);
+        if (!error) {
+          await reloadLessons();
+        }
+      }
       setEditing(false);
     };
 
-    const deleteLesson = () => {
-      const newLessons = {...lessons};
-      delete newLessons[selectedDate];
-      setLessons(newLessons);
-      setSelectedDate(null);
+    const deleteCurrentLesson = async () => {
+      if (!currentLesson) return;
+
+      const { error } = await deleteLesson(currentLesson.id);
+      if (!error) {
+        await reloadLessons();
+        const updatedDayLessons = lessons[selectedDate] || [];
+        if (updatedDayLessons.length === 0) {
+          setSelectedDate(null);
+        } else {
+          setSelectedLessonIndex(Math.max(0, selectedLessonIndex - 1));
+        }
+      }
     };
 
-    const toggleTeacherAvailability = (type) => {
+    const toggleTeacherAvailability = async (type) => {
+      if (!currentLesson) return;
+
       const teacherName = currentUser.name;
-      const teachers = lesson.teachers || [];
+      const teachers = currentLesson.teachers || [];
       const existingTeacher = teachers.find(t => t.name === teacherName);
-      
+
       let newTeachers;
       if (existingTeacher) {
-        newTeachers = teachers.map(t => 
-          t.name === teacherName 
+        newTeachers = teachers.map(t =>
+          t.name === teacherName
             ? {...t, [type]: !t[type]}
             : t
         );
@@ -273,29 +330,44 @@ const AquaSync = () => {
         newTeachers = [...teachers, { name: teacherName, pool: type === 'pool', classroom: type === 'classroom', note: '' }];
       }
 
-      setLessons({
-        ...lessons,
-        [selectedDate]: {
-          ...lesson,
-          teachers: newTeachers
+      // Update teacher availability in database
+      const teacher = users.find(u => u.name === teacherName);
+      if (teacher) {
+        const availability = {
+          pool: type === 'pool' ? !existingTeacher?.[type] : existingTeacher?.pool || false,
+          classroom: type === 'classroom' ? !existingTeacher?.[type] : existingTeacher?.classroom || false,
+          note: existingTeacher?.note || ''
+        };
+
+        const { error } = await updateTeacherAvailability(currentLesson.id, teacher.id, availability);
+        if (!error) {
+          await reloadLessons();
         }
-      });
+      }
     };
 
-    const updateTeacherNote = (note) => {
-      const teacherName = currentUser.name;
-      const teachers = lesson.teachers || [];
-      const newTeachers = teachers.map(t =>
-        t.name === teacherName ? {...t, note} : t
-      );
+    const updateTeacherNote = async (note) => {
+      if (!currentLesson) return;
 
-      setLessons({
-        ...lessons,
-        [selectedDate]: {
-          ...lesson,
-          teachers: newTeachers
+      const teacherName = currentUser.name;
+      const teacher = users.find(u => u.name === teacherName);
+      if (!teacher) return;
+
+      const teachers = currentLesson.teachers || [];
+      const existingTeacher = teachers.find(t => t.name === teacherName);
+
+      if (existingTeacher) {
+        const availability = {
+          pool: existingTeacher.pool,
+          classroom: existingTeacher.classroom,
+          note: note
+        };
+
+        const { error } = await updateTeacherAvailability(currentLesson.id, teacher.id, availability);
+        if (!error) {
+          await reloadLessons();
         }
-      });
+      }
     };
 
     const saveTeacherNote = () => {
@@ -308,41 +380,95 @@ const AquaSync = () => {
       }
     };
 
-    const removeTeacher = (teacherName) => {
-      const newTeachers = lesson.teachers.filter(t => t.name !== teacherName);
-      setLessons({
-        ...lessons,
-        [selectedDate]: {
-          ...lesson,
-          teachers: newTeachers
-        }
-      });
+    const removeTeacher = async (teacherName) => {
+      if (!currentLesson) return;
+
+      const teacher = users.find(u => u.name === teacherName);
+      if (!teacher) return;
+
+      const { error } = await removeTeacherAvailability(currentLesson.id, teacher.id);
+      if (!error) {
+        await reloadLessons();
+      }
     };
 
-    const currentTeacher = lesson.teachers?.find(t => t.name === currentUser.name);
+    const currentTeacher = currentLesson?.teachers?.find(t => t.name === currentUser.name);
 
     return (
       <div className="bg-white rounded-xl shadow-lg p-6">
         <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-bold text-gray-800">
-            Lezione del {new Date(selectedDate).toLocaleDateString('it-IT')}
-          </h3>
+          <div>
+            <h3 className="text-xl font-bold text-gray-800">
+              {new Date(selectedDate).toLocaleDateString('it-IT')}
+            </h3>
+            {hasLessons && (
+              <div className="flex gap-2 mt-2">
+                {dayLessons.map((lesson, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedLessonIndex(idx)}
+                    className={`
+                      px-3 py-1 rounded-full text-sm font-medium transition-colors
+                      ${idx === selectedLessonIndex
+                        ? 'bg-cyan-600 text-white'
+                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }
+                    `}
+                  >
+                    {lesson.time}
+                  </button>
+                ))}
+                {currentUser.role === 'admin' && (
+                  <button
+                    onClick={() => {
+                      setFormData({ time: '09:00', pool: false, classroom: false, description: '', teachers: [] });
+                      setIsCreatingNew(true);
+                      setEditing(true);
+                    }}
+                    className="px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           {currentUser.role === 'admin' && (
             <div className="flex gap-2">
               {!editing ? (
                 <>
-                  <button
-                    onClick={() => setEditing(true)}
-                    className="p-2 text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
-                  >
-                    <Edit2 className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={deleteLesson}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
+                  {hasLessons && (
+                    <button
+                      onClick={() => {
+                        setFormData(currentLesson);
+                        setIsCreatingNew(false);
+                        setEditing(true);
+                      }}
+                      className="p-2 text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
+                    >
+                      <Edit2 className="w-5 h-5" />
+                    </button>
+                  )}
+                  {hasLessons && (
+                    <button
+                      onClick={deleteCurrentLesson}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  )}
+                  {!hasLessons && (
+                    <button
+                      onClick={() => {
+                        setIsCreatingNew(true);
+                        setEditing(true);
+                      }}
+                      className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors font-medium"
+                    >
+                      <Plus className="w-5 h-5 inline mr-2" />
+                      Aggiungi Lezione
+                    </button>
+                  )}
                 </>
               ) : (
                 <>
@@ -355,7 +481,10 @@ const AquaSync = () => {
                   <button
                     onClick={() => {
                       setEditing(false);
-                      setFormData(lesson);
+                      setIsCreatingNew(false);
+                      if (currentLesson) {
+                        setFormData(currentLesson);
+                      }
                     }}
                     className="p-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
                   >
@@ -413,40 +542,52 @@ const AquaSync = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {lesson.time && (
-              <div className="flex items-center gap-2 text-lg font-semibold text-gray-800">
-                <Calendar className="w-5 h-5" />
-                <span>Orario: {lesson.time}</span>
+            {!hasLessons ? (
+              <div className="text-center py-8 text-gray-500">
+                <Calendar className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                <p>Nessuna lezione programmata per questa data</p>
+                {currentUser.role === 'admin' && (
+                  <p className="text-sm mt-2">Clicca "Aggiungi Lezione" per crearne una</p>
+                )}
               </div>
-            )}
-            <div className="flex gap-4 text-lg">
-              {lesson.pool && (
-                <div className="flex items-center gap-2 text-blue-600">
-                  <Waves className="w-6 h-6" />
-                  <span>Lezione in Piscina</span>
+            ) : (
+              <>
+                {currentLesson.time && (
+                  <div className="flex items-center gap-2 text-lg font-semibold text-gray-800">
+                    <Calendar className="w-5 h-5" />
+                    <span>Orario: {currentLesson.time}</span>
+                  </div>
+                )}
+                <div className="flex gap-4 text-lg">
+                  {currentLesson.pool && (
+                    <div className="flex items-center gap-2 text-blue-600">
+                      <Waves className="w-6 h-6" />
+                      <span>Lezione in Piscina</span>
+                    </div>
+                  )}
+                  {currentLesson.classroom && (
+                    <div className="flex items-center gap-2 text-green-600">
+                      <School className="w-6 h-6" />
+                      <span>Lezione in Aula</span>
+                    </div>
+                  )}
                 </div>
-              )}
-              {lesson.classroom && (
-                <div className="flex items-center gap-2 text-green-600">
-                  <School className="w-6 h-6" />
-                  <span>Lezione in Aula</span>
-                </div>
-              )}
-            </div>
-            {lesson.description && (
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <p className="text-gray-700">{lesson.description}</p>
-              </div>
+                {currentLesson.description && (
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <p className="text-gray-700">{currentLesson.description}</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
         {/* Teacher availability section */}
-        {currentUser.role === 'teacher' && (lesson.pool || lesson.classroom) && (
+        {currentUser.role === 'teacher' && currentLesson && (currentLesson.pool || currentLesson.classroom) && (
           <div className="mt-6 p-4 bg-cyan-50 rounded-lg space-y-3">
             <h4 className="font-semibold text-gray-800">La tua disponibilità</h4>
             <div className="flex gap-4">
-              {lesson.pool && (
+              {currentLesson.pool && (
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -458,7 +599,7 @@ const AquaSync = () => {
                   <span>Disponibile per piscina</span>
                 </label>
               )}
-              {lesson.classroom && (
+              {currentLesson.classroom && (
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -494,11 +635,11 @@ const AquaSync = () => {
         )}
 
         {/* Teachers list */}
-        {lesson.teachers && lesson.teachers.length > 0 && (
+        {currentLesson && currentLesson.teachers && currentLesson.teachers.length > 0 && (
           <div className="mt-6">
             <h4 className="font-semibold text-gray-800 mb-3">Istruttori disponibili</h4>
             <div className="space-y-2">
-              {lesson.teachers.map((teacher, idx) => (
+              {currentLesson.teachers.map((teacher, idx) => (
                 <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                   <div className="flex-1">
                     <div className="font-medium text-gray-800">{teacher.name}</div>

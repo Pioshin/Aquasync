@@ -27,7 +27,7 @@ export const getLessons = async () => {
     return { data: null, error }
   }
 
-  // Transform data to match our app structure
+  // Transform data to support multiple lessons per day
   const lessonsObj = {}
 
   data.forEach(lesson => {
@@ -39,7 +39,7 @@ export const getLessons = async () => {
       note: ta.note || ''
     }))
 
-    lessonsObj[dateKey] = {
+    const lessonData = {
       id: lesson.id,
       time: lesson.time,
       pool: lesson.pool,
@@ -47,6 +47,14 @@ export const getLessons = async () => {
       description: lesson.description || '',
       teachers: teachers
     }
+
+    // Initialize array if doesn't exist
+    if (!lessonsObj[dateKey]) {
+      lessonsObj[dateKey] = []
+    }
+
+    // Add lesson to the day's array
+    lessonsObj[dateKey].push(lessonData)
   })
 
   return { data: lessonsObj, error: null }
