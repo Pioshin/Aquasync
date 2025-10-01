@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Users, Lock, LogOut, Plus, Trash2, Edit2, Save, X, Waves, School } from 'lucide-react';
+import { Calendar, Users, Lock, LogOut, Plus, Trash2, Edit2, Save, X, Waves, School, BookOpen, Droplets, User } from 'lucide-react';
 import './App.css';
 
 // Supabase imports
@@ -768,6 +768,124 @@ const AquaSync = () => {
     }
   };
 
+  // Lessons Summary Component
+  const LessonsSummary = () => {
+    // Get all lessons from the current month and upcoming
+    const getAllLessons = () => {
+      const allLessons = [];
+      Object.entries(lessons).forEach(([dateKey, dayLessons]) => {
+        dayLessons.forEach(lesson => {
+          allLessons.push({
+            ...lesson,
+            date: dateKey,
+            dateObj: new Date(dateKey)
+          });
+        });
+      });
+
+      // Sort by date
+      return allLessons.sort((a, b) => a.dateObj - b.dateObj);
+    };
+
+    const allLessons = getAllLessons();
+
+    const handleEditLesson = (lesson) => {
+      setSelectedDate(lesson.date);
+    };
+
+    const handleDeleteLesson = async (lessonId) => {
+      if (window.confirm('Sei sicuro di voler eliminare questa lezione?')) {
+        const { error } = await deleteLesson(lessonId);
+        if (!error) {
+          await reloadLessons();
+        } else {
+          console.error('Error deleting lesson:', error);
+        }
+      }
+    };
+
+    return (
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <h3 className="text-xl font-bold text-gray-800 mb-6">Lezioni Programmate</h3>
+
+        {allLessons.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <School className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+            <p>Nessuna lezione programmata</p>
+            <p className="text-sm">Seleziona una data dal calendario per aggiungere una lezione</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {allLessons.map((lesson, index) => (
+              <div key={`${lesson.date}-${lesson.id}-${index}`} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-2">
+                      <h4 className="font-semibold text-gray-800">
+                        {lesson.description || `Lezione ${lesson.pool ? 'Piscina' : ''} ${lesson.classroom ? 'Aula' : ''}`.trim()}
+                      </h4>
+                      <div className="flex gap-2">
+                        {lesson.pool && (
+                          <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
+                            <Droplets className="w-3 h-3" />
+                            <span>Pratica</span>
+                          </div>
+                        )}
+                        {lesson.classroom && (
+                          <div className="flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">
+                            <BookOpen className="w-3 h-3" />
+                            <span>Teoria</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="text-sm text-gray-600 mb-2">
+                      {lesson.pool && lesson.classroom ? 'Corso base apnea - teoria e pratica' :
+                       lesson.pool ? 'Allenamento piscina' :
+                       lesson.classroom ? 'Lezione teorica' : 'Lezione generica'}
+                    </div>
+
+                    <div className="flex items-center gap-4 text-sm text-gray-500">
+                      <span>{new Date(lesson.date).toLocaleDateString('it-IT', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })}</span>
+                      <span>Ore {lesson.time}</span>
+                      {lesson.teachers && lesson.teachers.length > 0 && (
+                        <div className="flex items-center gap-1">
+                          <User className="w-3 h-3" />
+                          <span>{lesson.teachers.length} disponibili</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 ml-4">
+                    <button
+                      onClick={() => handleEditLesson(lesson)}
+                      className="px-3 py-1.5 text-sm text-cyan-600 hover:bg-cyan-50 rounded-md transition-colors border border-cyan-200"
+                    >
+                      Modifica
+                    </button>
+                    <button
+                      onClick={() => handleDeleteLesson(lesson.id)}
+                      className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-md transition-colors border border-red-200"
+                    >
+                      Elimina
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // User manager (admin only)
   const UserManager = () => {
     // Local state for user editing to avoid losing focus
@@ -1039,20 +1157,25 @@ const AquaSync = () => {
           {showUserManager && currentUser.role === 'admin' ? (
             <UserManager />
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2">
-                <CalendarView />
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                  <CalendarView />
+                </div>
+                <div className="lg:col-span-1">
+                  {selectedDate ? (
+                    <LessonPanel />
+                  ) : (
+                    <div className="bg-white rounded-xl shadow-lg p-6 text-center text-gray-500">
+                      <Calendar className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                      <p>Seleziona una data dal calendario per visualizzare o gestire le lezioni</p>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="lg:col-span-1">
-                {selectedDate ? (
-                  <LessonPanel />
-                ) : (
-                  <div className="bg-white rounded-xl shadow-lg p-6 text-center text-gray-500">
-                    <Calendar className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-                    <p>Seleziona una data dal calendario per visualizzare o gestire le lezioni</p>
-                  </div>
-                )}
-              </div>
+
+              {/* Lessons Summary Section */}
+              <LessonsSummary />
             </div>
           )}
         </main>
