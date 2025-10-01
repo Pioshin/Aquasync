@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Users, Lock, LogOut, Plus, Trash2, Edit2, Save, X, Waves, School, BookOpen, Droplets, User, BarChart3, ChevronDown } from 'lucide-react';
+import { Calendar, Users, Lock, LogOut, Plus, Trash2, Edit2, Save, X, Waves, School, BookOpen, Droplets, User, BarChart3, ChevronDown, Coffee } from 'lucide-react';
 import './App.css';
 
 // Supabase imports
@@ -1340,6 +1340,16 @@ const AquaSync = () => {
                 )}
               </div>
 
+              <a
+                href="https://www.buymeacoffee.com/aquasync"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                title="Buy me a coffee"
+              >
+                <Coffee className="w-6 h-6" />
+              </a>
+
               <button
                 onClick={() => setCurrentUser(null)}
                 className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -1384,6 +1394,17 @@ const AquaSync = () => {
         {/* Footer */}
         <footer className="container mx-auto px-4 py-6 text-center text-gray-600 text-sm">
           <p>AquaSync © 2025 - Sistema di gestione coordinamento istruttori apnea</p>
+          <div className="mt-2">
+            <a
+              href="https://www.buymeacoffee.com/aquasync"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-amber-600 hover:text-amber-700 transition-colors"
+            >
+              <Coffee className="w-4 h-4" />
+              <span>Buy me a coffee</span>
+            </a>
+          </div>
         </footer>
       </div>
     );
