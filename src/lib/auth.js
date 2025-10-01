@@ -1,25 +1,55 @@
 import { supabase } from './supabase.js'
 
 // Auth functions
-export const signIn = async (username, password) => {
+export const signIn = async (username, password, organizationSlug = null) => {
   try {
-    // First, find user by username
-    const { data: userData, error: userError } = await supabase
+    // Build query to find user by username
+    let query = supabase
       .from('users')
-      .select('*')
+      .select(`
+        *,
+        organizations!inner (
+          id,
+          name,
+          slug
+        )
+      `)
       .eq('username', username)
-      .single()
+
+    // If organization is specified, filter by it
+    if (organizationSlug) {
+      query = query.eq('organizations.slug', organizationSlug)
+    }
+
+    const { data: userData, error: userError } = await query.single()
 
     if (userError || !userData) {
-      throw new Error('Username not found')
+      // Check if user exists in any organization for better error message
+      const { data: anyUser } = await supabase
+        .from('users')
+        .select('username')
+        .eq('username', username)
+        .single()
+
+      if (anyUser && organizationSlug) {
+        throw new Error(`Username not found in ${organizationSlug.toUpperCase()} environment`)
+      }
+      throw new Error('Invalid username or password')
     }
 
     // Check password from database
     if (password !== userData.password) {
-      throw new Error('Invalid password')
+      throw new Error('Invalid username or password')
     }
 
-    return { user: userData, error: null }
+    // Add organization info to user object
+    const userWithOrg = {
+      ...userData,
+      organization: userData.organizations
+    }
+    delete userWithOrg.organizations
+
+    return { user: userWithOrg, error: null }
   } catch (error) {
     return { user: null, error: error.message }
   }

@@ -112,13 +112,16 @@ const AquaSync = () => {
         return;
       }
 
-      const { user, error } = await signIn(credentials.username, credentials.password);
+      // Get organization slug for authentication
+      const selectedOrg = organizations.find(org => org.id === credentials.organizationId);
+      const organizationSlug = selectedOrg?.slug;
+
+      const { user, error } = await signIn(credentials.username, credentials.password, organizationSlug);
       if (error) {
-        setError('Credenziali non valide');
+        setError(error);
       } else {
-        const selectedOrg = organizations.find(org => org.id === credentials.organizationId);
         setCurrentUser(user);
-        setCurrentOrganization(selectedOrg);
+        setCurrentOrganization(user.organization || selectedOrg);
         setCredentials({ username: '', password: '', organizationId: '' });
 
         // Force loading state to false after successful login
