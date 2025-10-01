@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Users, Lock, LogOut, Plus, Trash2, Edit2, Save, X, Waves, School, BookOpen, Droplets, User } from 'lucide-react';
+import { Calendar, Users, Lock, LogOut, Plus, Trash2, Edit2, Save, X, Waves, School, BookOpen, Droplets, User, BarChart3, ChevronDown } from 'lucide-react';
 import './App.css';
 
 // Supabase imports
@@ -16,6 +16,7 @@ const AquaSync = () => {
   const [selectedDate, setSelectedDate] = useState(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [showUserManager, setShowUserManager] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [newUser, setNewUser] = useState({ username: '', password: '', name: '' });
   const [loading, setLoading] = useState(true);
@@ -768,6 +769,162 @@ const AquaSync = () => {
     }
   };
 
+  // Monthly Summary Component
+  const MonthlySummary = () => {
+    const [selectedMonth, setSelectedMonth] = useState(new Date());
+
+    // Get available months from lessons data
+    const getAvailableMonths = () => {
+      const months = new Set();
+      Object.keys(lessons).forEach(dateKey => {
+        const date = new Date(dateKey);
+        const monthKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+        months.add(monthKey);
+      });
+      return Array.from(months).sort().reverse(); // Most recent first
+    };
+
+    // Filter lessons for selected month
+    const getMonthLessons = () => {
+      const year = selectedMonth.getFullYear();
+      const month = selectedMonth.getMonth();
+
+      const monthLessons = [];
+      Object.entries(lessons).forEach(([dateKey, dayLessons]) => {
+        const lessonDate = new Date(dateKey);
+        if (lessonDate.getFullYear() === year && lessonDate.getMonth() === month) {
+          dayLessons.forEach(lesson => {
+            monthLessons.push({
+              ...lesson,
+              date: dateKey,
+              dateObj: lessonDate
+            });
+          });
+        }
+      });
+      return monthLessons;
+    };
+
+    const monthLessons = getMonthLessons();
+    const availableMonths = getAvailableMonths();
+
+    // Calculate statistics
+    const totalLessons = monthLessons.length;
+
+    // Count unique active instructors (those with at least one availability)
+    const activeInstructors = new Set();
+    monthLessons.forEach(lesson => {
+      if (lesson.teachers && lesson.teachers.length > 0) {
+        lesson.teachers.forEach(teacher => {
+          activeInstructors.add(teacher.name);
+        });
+      }
+    });
+    const activeInstructorsCount = activeInstructors.size;
+
+    // Count total availabilities (each instructor availability for each lesson)
+    const totalAvailabilities = monthLessons.reduce((sum, lesson) => {
+      return sum + (lesson.teachers ? lesson.teachers.length : 0);
+    }, 0);
+
+    // Count lessons by type
+    const theoryLessons = monthLessons.filter(lesson => lesson.classroom && !lesson.pool).length;
+    const practiceLessons = monthLessons.filter(lesson => lesson.pool && !lesson.classroom).length;
+    const bothLessons = monthLessons.filter(lesson => lesson.pool && lesson.classroom).length;
+
+    const handleMonthChange = (monthString) => {
+      const [year, month] = monthString.split('-');
+      setSelectedMonth(new Date(parseInt(year), parseInt(month) - 1, 1));
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-xl shadow-lg p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-bold text-gray-800">Riepilogo Mensile</h3>
+
+            {/* Month selector */}
+            {availableMonths.length > 1 && (
+              <div className="relative">
+                <select
+                  value={`${selectedMonth.getFullYear()}-${(selectedMonth.getMonth() + 1).toString().padStart(2, '0')}`}
+                  onChange={(e) => handleMonthChange(e.target.value)}
+                  className="appearance-none bg-white border border-gray-300 rounded-lg px-4 py-2 pr-8 focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                >
+                  {availableMonths.map(monthKey => {
+                    const [year, month] = monthKey.split('-');
+                    const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+                    return (
+                      <option key={monthKey} value={monthKey}>
+                        {date.toLocaleDateString('it-IT', { year: 'numeric', month: 'long' })}
+                      </option>
+                    );
+                  })}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
+            )}
+          </div>
+
+          {/* Statistics Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div className="bg-gradient-to-r from-blue-50 to-cyan-50 p-6 rounded-lg border border-blue-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Lezioni Totali</p>
+                  <p className="text-3xl font-bold text-cyan-600">{totalLessons}</p>
+                </div>
+                <School className="w-8 h-8 text-cyan-500" />
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-lg border border-green-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Istruttori Attivi</p>
+                  <p className="text-3xl font-bold text-green-600">{activeInstructorsCount}</p>
+                </div>
+                <User className="w-8 h-8 text-green-500" />
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-r from-purple-50 to-indigo-50 p-6 rounded-lg border border-purple-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Disponibilità</p>
+                  <p className="text-3xl font-bold text-purple-600">{totalAvailabilities}</p>
+                </div>
+                <BarChart3 className="w-8 h-8 text-purple-500" />
+              </div>
+            </div>
+          </div>
+
+          {/* Lessons by Type */}
+          <div className="bg-gray-50 p-6 rounded-lg">
+            <h4 className="text-lg font-semibold text-gray-800 mb-4">Lezioni per Tipo</h4>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-green-600" />
+                  <span className="text-gray-700">Teoria:</span>
+                </div>
+                <span className="font-semibold text-gray-800">{theoryLessons + bothLessons}</span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Droplets className="w-4 h-4 text-blue-600" />
+                  <span className="text-gray-700">Pratica:</span>
+                </div>
+                <span className="font-semibold text-gray-800">{practiceLessons + bothLessons}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Lessons Summary Component
   const LessonsSummary = () => {
     // Get all lessons from the current month and upcoming
@@ -1123,24 +1280,66 @@ const AquaSync = () => {
                 <div className="font-medium text-gray-800">{currentUser.name}</div>
                 <div className="text-sm text-gray-600">{currentUser.role === 'admin' ? 'Admin' : 'Istruttore'}</div>
               </div>
-              {currentUser.role === 'admin' && (
+
+              {/* Navigation buttons */}
+              <div className="flex gap-2">
                 <button
-                  onClick={() => setShowUserManager(!showUserManager)}
+                  onClick={() => {
+                    setShowUserManager(false);
+                    setShowSummary(false);
+                  }}
                   className={`
                     flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-medium text-sm
-                    ${showUserManager
+                    ${!showUserManager && !showSummary
                       ? 'bg-cyan-600 text-white shadow-md'
                       : 'text-cyan-600 hover:bg-cyan-50 border border-cyan-200'
                     }
                   `}
-                  title={showUserManager ? "Torna al calendario" : "Gestisci istruttori"}
+                  title="Visualizza calendario"
                 >
-                  <Users className="w-5 h-5" />
-                  <span className="hidden sm:inline">
-                    {showUserManager ? 'Calendario' : 'Istruttori'}
-                  </span>
+                  <Calendar className="w-5 h-5" />
+                  <span className="hidden sm:inline">Calendario</span>
                 </button>
-              )}
+
+                <button
+                  onClick={() => {
+                    setShowUserManager(false);
+                    setShowSummary(true);
+                  }}
+                  className={`
+                    flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-medium text-sm
+                    ${showSummary
+                      ? 'bg-cyan-600 text-white shadow-md'
+                      : 'text-cyan-600 hover:bg-cyan-50 border border-cyan-200'
+                    }
+                  `}
+                  title="Visualizza riepilogo mensile"
+                >
+                  <BarChart3 className="w-5 h-5" />
+                  <span className="hidden sm:inline">Riepilogo</span>
+                </button>
+
+                {currentUser.role === 'admin' && (
+                  <button
+                    onClick={() => {
+                      setShowUserManager(true);
+                      setShowSummary(false);
+                    }}
+                    className={`
+                      flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-medium text-sm
+                      ${showUserManager
+                        ? 'bg-cyan-600 text-white shadow-md'
+                        : 'text-cyan-600 hover:bg-cyan-50 border border-cyan-200'
+                      }
+                    `}
+                    title="Gestisci istruttori"
+                  >
+                    <Users className="w-5 h-5" />
+                    <span className="hidden sm:inline">Istruttori</span>
+                  </button>
+                )}
+              </div>
+
               <button
                 onClick={() => setCurrentUser(null)}
                 className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
@@ -1156,6 +1355,8 @@ const AquaSync = () => {
         <main className="container mx-auto px-4 py-8">
           {showUserManager && currentUser.role === 'admin' ? (
             <UserManager />
+          ) : showSummary ? (
+            <MonthlySummary />
           ) : (
             <div className="space-y-6">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
