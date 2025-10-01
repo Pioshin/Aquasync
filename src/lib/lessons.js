@@ -1,66 +1,128 @@
 import { supabase } from './supabase.js'
 
 // Lesson management functions
-export const getLessons = async () => {
-  const { data, error } = await supabase
-    .from('lessons')
-    .select(`
-      *,
-      teacher_availability (
-        id,
-        teacher_id,
-        pool,
-        classroom,
-        note,
-        users!teacher_availability_teacher_id_fkey (
+export const getLessons = async (organizationId) => {
+  try {
+    const { data, error } = await supabase
+      .from('lessons')
+      .select(`
+        *,
+        teacher_availability (
           id,
-          name,
-          username
+          teacher_id,
+          pool,
+          classroom,
+          note,
+          users!teacher_availability_teacher_id_fkey (
+            id,
+            name,
+            username
+          )
         )
-      )
-    `)
-    .order('date')
-    .order('time')
+      `)
+      .eq('organization_id', organizationId)
+      .order('date')
+      .order('time')
 
-  if (error) {
-    console.error('Error fetching lessons:', error)
-    return { data: null, error }
+    if (error) {
+      console.error('Error fetching lessons:', error)
+      return { data: null, error }
+    }
+
+    // Transform data to support multiple lessons per day
+    const lessonsObj = {}
+
+    data.forEach(lesson => {
+      const dateKey = lesson.date
+      const teachers = lesson.teacher_availability.map(ta => ({
+        name: ta.users.name,
+        pool: ta.pool,
+        classroom: ta.classroom,
+        note: ta.note || ''
+      }))
+
+      const lessonData = {
+        id: lesson.id,
+        time: lesson.time,
+        pool: lesson.pool,
+        classroom: lesson.classroom,
+        description: lesson.description || '',
+        teachers: teachers
+      }
+
+      // Initialize array if doesn't exist
+      if (!lessonsObj[dateKey]) {
+        lessonsObj[dateKey] = []
+      }
+
+      // Add lesson to the day's array
+      lessonsObj[dateKey].push(lessonData)
+    })
+
+    return { data: lessonsObj, error: null }
+  } catch (error) {
+    // Fallback: if organization_id column doesn't exist yet, get all lessons
+    console.warn('Falling back to getting all lessons:', error);
+    const { data, error: fallbackError } = await supabase
+      .from('lessons')
+      .select(`
+        *,
+        teacher_availability (
+          id,
+          teacher_id,
+          pool,
+          classroom,
+          note,
+          users!teacher_availability_teacher_id_fkey (
+            id,
+            name,
+            username
+          )
+        )
+      `)
+      .order('date')
+      .order('time')
+
+    if (fallbackError) {
+      console.error('Error fetching lessons:', fallbackError)
+      return { data: {}, error: fallbackError }
+    }
+
+    // Transform data to support multiple lessons per day
+    const lessonsObj = {}
+
+    data.forEach(lesson => {
+      const dateKey = lesson.date
+      const teachers = lesson.teacher_availability.map(ta => ({
+        name: ta.users.name,
+        pool: ta.pool,
+        classroom: ta.classroom,
+        note: ta.note || ''
+      }))
+
+      const lessonData = {
+        id: lesson.id,
+        time: lesson.time,
+        pool: lesson.pool,
+        classroom: lesson.classroom,
+        description: lesson.description || '',
+        teachers: teachers
+      }
+
+      // Initialize array if doesn't exist
+      if (!lessonsObj[dateKey]) {
+        lessonsObj[dateKey] = []
+      }
+
+      // Add lesson to the day's array
+      lessonsObj[dateKey].push(lessonData)
+    })
+
+    return { data: lessonsObj, error: null }
   }
-
-  // Transform data to support multiple lessons per day
-  const lessonsObj = {}
-
-  data.forEach(lesson => {
-    const dateKey = lesson.date
-    const teachers = lesson.teacher_availability.map(ta => ({
-      name: ta.users.name,
-      pool: ta.pool,
-      classroom: ta.classroom,
-      note: ta.note || ''
-    }))
-
-    const lessonData = {
-      id: lesson.id,
-      time: lesson.time,
-      pool: lesson.pool,
-      classroom: lesson.classroom,
-      description: lesson.description || '',
-      teachers: teachers
-    }
-
-    // Initialize array if doesn't exist
-    if (!lessonsObj[dateKey]) {
-      lessonsObj[dateKey] = []
-    }
-
-    // Add lesson to the day's array
-    lessonsObj[dateKey].push(lessonData)
-  })
-
-  return { data: lessonsObj, error: null }
 }
 
-export const createLesson = async (lessonData, dateKey) => {
+export const createLesson = async (lessonData, dateKey, organizationId) => {
   const { data, error } = await supabase
     .from('lessons')
     .insert([{
@@ -69,7 +131,8 @@ export const createLesson = async (lessonData, dateKey) => {
       pool: lessonData.pool,
       classroom: lessonData.classroom,
       description: lessonData.description,
-      created_by: lessonData.created_by
+      created_by: lessonData.created_by,
+      organization_id: organizationId
     }])
     .select()
     .single()
@@ -103,7 +166,7 @@ export const deleteLesson = async (lessonId) => {
 }
 
 // Teacher availability functions
-export const updateTeacherAvailability = async (lessonId, teacherId, availability) => {
+export const updateTeacherAvailability = async (lessonId, teacherId, availability, organizationId) => {
   // First try to update existing availability
   const { data: existingData, error: fetchError } = await supabase
     .from('teacher_availability')
@@ -135,7 +198,8 @@ export const updateTeacherAvailability = async (lessonId, teacherId, availabilit
         teacher_id: teacherId,
         pool: availability.pool,
         classroom: availability.classroom,
-        note: availability.note
+        note: availability.note,
+        organization_id: organizationId
       }])
       .select()
       .single()

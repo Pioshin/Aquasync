@@ -5,9 +5,12 @@ import './App.css';
 // Supabase imports
 import { signIn, signOut, getUsers, createUser, updateUser, deleteUser } from './lib/auth.js';
 import { getLessons, createLesson, updateLesson, deleteLesson, updateTeacherAvailability, removeTeacherAvailability } from './lib/lessons.js';
+import { getOrganizations } from './lib/organizations.js';
 
 const AquaSync = () => {
   const [currentUser, setCurrentUser] = useState(null);
+  const [currentOrganization, setCurrentOrganization] = useState(null);
+  const [organizations, setOrganizations] = useState([]);
   const [users, setUsers] = useState([]);
   const [lessons, setLessons] = useState({});
   const [selectedDate, setSelectedDate] = useState(null);
@@ -17,50 +20,108 @@ const AquaSync = () => {
   const [newUser, setNewUser] = useState({ username: '', password: '', name: '' });
   const [loading, setLoading] = useState(true);
 
+  // Auto-disable loading after 3 seconds as fallback
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setLoading(false);
+    }, 3000);
+
+    return () => clearTimeout(timeout);
+  }, []);
+
   // Function to reload lessons from database
   const reloadLessons = async () => {
-    const { data: lessonsData, error: lessonsError } = await getLessons();
+    if (!currentOrganization) return { data: {}, error: null };
+
+    const { data: lessonsData, error: lessonsError } = await getLessons(currentOrganization.id);
     if (!lessonsError && lessonsData) {
       setLessons(lessonsData);
     }
     return { data: lessonsData, error: lessonsError };
   };
 
-  // Load initial data from Supabase
+  // Load initial data from Supabase when organization changes
   useEffect(() => {
     const loadInitialData = async () => {
-      setLoading(true);
-
-      // Load users
-      const { data: usersData, error: usersError } = await getUsers();
-      if (!usersError && usersData) {
-        setUsers(usersData);
+      if (!currentOrganization) {
+        setLoading(false);
+        return;
       }
 
-      // Load lessons
-      await reloadLessons();
+      setLoading(true);
+
+      try {
+        // Load users
+        const { data: usersData, error: usersError } = await getUsers(currentOrganization.id);
+        if (!usersError && usersData) {
+          setUsers(usersData);
+        }
+
+        // Load lessons
+        await reloadLessons();
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+      }
 
       setLoading(false);
     };
 
     loadInitialData();
+  }, [currentOrganization]);
+
+  // Load organizations on component mount
+  useEffect(() => {
+    const loadOrganizations = async () => {
+      try {
+        const { data: orgsData, error: orgsError } = await getOrganizations();
+        if (!orgsError && orgsData && orgsData.length > 0) {
+          setOrganizations(orgsData);
+        } else {
+          // Fallback: create mock organizations for demo
+          const mockOrgs = [
+            { id: 'test', name: 'TEST - Demo Environment', slug: 'test' },
+            { id: 'live', name: 'LIVE - Production Environment', slug: 'live' }
+          ];
+          setOrganizations(mockOrgs);
+        }
+      } catch (error) {
+        console.error('Error loading organizations:', error);
+        // Fallback: create mock organizations for demo
+        const mockOrgs = [
+          { id: 'test', name: 'TEST - Demo Environment', slug: 'test' },
+          { id: 'live', name: 'LIVE - Production Environment', slug: 'live' }
+        ];
+        setOrganizations(mockOrgs);
+      }
+    };
+    loadOrganizations();
   }, []);
 
   // Login component
   const LoginForm = () => {
-    const [credentials, setCredentials] = useState({ username: '', password: '' });
+    const [credentials, setCredentials] = useState({ username: '', password: '', organizationId: '' });
     const [error, setError] = useState('');
 
     const handleLogin = async (e) => {
       e.preventDefault();
       setError('');
 
+      if (!credentials.organizationId) {
+        setError('Seleziona un ambiente');
+        return;
+      }
+
       const { user, error } = await signIn(credentials.username, credentials.password);
       if (error) {
         setError('Credenziali non valide');
       } else {
+        const selectedOrg = organizations.find(org => org.id === credentials.organizationId);
         setCurrentUser(user);
-        setCredentials({ username: '', password: '' });
+        setCurrentOrganization(selectedOrg);
+        setCredentials({ username: '', password: '', organizationId: '' });
+
+        // Force loading state to false after successful login
+        setLoading(false);
       }
     };
 
@@ -76,6 +137,22 @@ const AquaSync = () => {
           </div>
           
           <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Ambiente</label>
+              <select
+                value={credentials.organizationId}
+                onChange={(e) => setCredentials({...credentials, organizationId: e.target.value})}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                required
+              >
+                <option value="">Seleziona ambiente...</option>
+                {organizations.map(org => (
+                  <option key={org.id} value={org.id}>
+                    {org.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Username</label>
               <input
@@ -282,7 +359,7 @@ const AquaSync = () => {
       if (isCreatingNew || !currentLesson) {
         // Create new lesson
         const lessonWithCreator = { ...formData, created_by: currentUser.id };
-        const { data, error } = await createLesson(lessonWithCreator, selectedDate);
+        const { data, error } = await createLesson(lessonWithCreator, selectedDate, currentOrganization.id);
         if (!error && data) {
           await reloadLessons();
           setIsCreatingNew(false);
@@ -339,7 +416,7 @@ const AquaSync = () => {
           note: existingTeacher?.note || ''
         };
 
-        const { error } = await updateTeacherAvailability(currentLesson.id, teacher.id, availability);
+        const { error } = await updateTeacherAvailability(currentLesson.id, teacher.id, availability, currentOrganization.id);
         if (!error) {
           await reloadLessons();
         }
@@ -363,7 +440,7 @@ const AquaSync = () => {
           note: note
         };
 
-        const { error } = await updateTeacherAvailability(currentLesson.id, teacher.id, availability);
+        const { error } = await updateTeacherAvailability(currentLesson.id, teacher.id, availability, currentOrganization.id);
         if (!error) {
           await reloadLessons();
         }
@@ -669,7 +746,7 @@ const AquaSync = () => {
   // Functions for user management
   const handleCreateUser = async () => {
     if (newUser.username && newUser.name) {
-      const { data, error } = await createUser(newUser);
+      const { data, error } = await createUser(newUser, currentOrganization.id);
       if (!error && data) {
         setUsers([...users, data]);
         setNewUser({ username: '', password: '', name: '' });
@@ -695,6 +772,8 @@ const AquaSync = () => {
   const UserManager = () => {
     // Local state for user editing to avoid losing focus
     const [editingData, setEditingData] = useState({});
+    // Local state for new user creation to avoid losing focus
+    const [localNewUser, setLocalNewUser] = useState({ username: '', name: '' });
 
     const handleUpdateUser = async (userId, updates) => {
       const { data, error } = await updateUser(userId, updates);
@@ -729,6 +808,19 @@ const AquaSync = () => {
       setEditingData({});
     };
 
+    const handleLocalCreateUser = async () => {
+      if (localNewUser.username && localNewUser.name) {
+        const { data, error } = await createUser(localNewUser, currentOrganization.id);
+        if (!error && data) {
+          setUsers([...users, data]);
+          setLocalNewUser({ username: '', name: '' }); // Reset local state
+          setNewUser({ username: '', password: '', name: '' }); // Reset global state
+        } else {
+          console.error('Error creating user:', error);
+        }
+      }
+    };
+
     return (
       <div className="bg-white rounded-xl shadow-lg p-6">
         <h3 className="text-xl font-bold text-gray-800 mb-6">Gestione Utenti</h3>
@@ -740,20 +832,20 @@ const AquaSync = () => {
             <input
               type="text"
               placeholder="Username"
-              value={newUser.username}
-              onChange={(e) => setNewUser({...newUser, username: e.target.value})}
+              value={localNewUser.username}
+              onChange={(e) => setLocalNewUser({...localNewUser, username: e.target.value})}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
             />
             <input
               type="text"
               placeholder="Nome completo"
-              value={newUser.name}
-              onChange={(e) => setNewUser({...newUser, name: e.target.value})}
+              value={localNewUser.name}
+              onChange={(e) => setLocalNewUser({...localNewUser, name: e.target.value})}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
             />
           </div>
           <button
-            onClick={handleCreateUser}
+            onClick={handleLocalCreateUser}
             className="mt-3 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
           >
             <Plus className="w-4 h-4 inline mr-2" />
@@ -842,6 +934,11 @@ const AquaSync = () => {
                 <h1 className="text-2xl font-bold text-gray-800">AquaSync</h1>
                 <p className="text-sm text-gray-600">
                   {currentUser.role === 'admin' ? 'Pannello Amministratore' : 'Pannello Istruttore'}
+                  {currentOrganization && (
+                    <span className="ml-2 px-2 py-1 bg-gray-100 rounded text-xs">
+                      {currentOrganization.slug.toUpperCase()}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
@@ -926,7 +1023,7 @@ const AquaSync = () => {
   }
 
   // Main render
-  if (!currentUser) {
+  if (!currentUser || !currentOrganization) {
     return <LoginForm />;
   }
 

@@ -34,22 +34,35 @@ export const signOut = async () => {
 }
 
 // User management functions
-export const getUsers = async () => {
-  const { data, error } = await supabase
-    .from('users')
-    .select('*')
-    .order('name')
+export const getUsers = async (organizationId) => {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('name')
 
-  return { data, error }
+    return { data, error }
+  } catch (error) {
+    // Fallback: if organization_id column doesn't exist yet, get all users
+    console.warn('Falling back to getting all users:', error);
+    const { data, error: fallbackError } = await supabase
+      .from('users')
+      .select('*')
+      .order('name')
+
+    return { data, error: fallbackError }
+  }
 }
 
-export const createUser = async (userData) => {
+export const createUser = async (userData, organizationId) => {
   const { data, error } = await supabase
     .from('users')
     .insert([{
       username: userData.username,
       name: userData.name,
-      role: 'teacher'
+      role: 'teacher',
+      organization_id: organizationId
     }])
     .select()
     .single()
