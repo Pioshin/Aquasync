@@ -14,11 +14,8 @@ export const signIn = async (username, password) => {
       throw new Error('Username not found')
     }
 
-    // For demo purposes, we'll use a simple password check
-    // In production, you should use proper Supabase auth
-    const demoPassword = userData.role === 'admin' ? 'admin123' : 'teacher123'
-
-    if (password !== demoPassword) {
+    // Check password from database
+    if (password !== userData.password) {
       throw new Error('Invalid password')
     }
 
@@ -61,6 +58,7 @@ export const createUser = async (userData, organizationId) => {
     .insert([{
       username: userData.username,
       name: userData.name,
+      password: userData.password || 'teacher123',
       role: 'teacher',
       organization_id: organizationId
     }])

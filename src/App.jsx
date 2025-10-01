@@ -773,7 +773,7 @@ const AquaSync = () => {
     // Local state for user editing to avoid losing focus
     const [editingData, setEditingData] = useState({});
     // Local state for new user creation to avoid losing focus
-    const [localNewUser, setLocalNewUser] = useState({ username: '', name: '' });
+    const [localNewUser, setLocalNewUser] = useState({ username: '', name: '', password: '' });
 
     const handleUpdateUser = async (userId, updates) => {
       const { data, error } = await updateUser(userId, updates);
@@ -791,14 +791,15 @@ const AquaSync = () => {
       setEditingData({
         username: user.username,
         name: user.name,
-        password: ''
+        password: user.password || 'teacher123'
       });
     };
 
     const saveUserChanges = (userId) => {
       const updates = {
         username: editingData.username,
-        name: editingData.name
+        name: editingData.name,
+        password: editingData.password
       };
       handleUpdateUser(userId, updates);
     };
@@ -809,11 +810,11 @@ const AquaSync = () => {
     };
 
     const handleLocalCreateUser = async () => {
-      if (localNewUser.username && localNewUser.name) {
+      if (localNewUser.username && localNewUser.name && localNewUser.password) {
         const { data, error } = await createUser(localNewUser, currentOrganization.id);
         if (!error && data) {
           setUsers([...users, data]);
-          setLocalNewUser({ username: '', name: '' }); // Reset local state
+          setLocalNewUser({ username: '', name: '', password: '' }); // Reset local state
           setNewUser({ username: '', password: '', name: '' }); // Reset global state
         } else {
           console.error('Error creating user:', error);
@@ -825,10 +826,10 @@ const AquaSync = () => {
       <div className="bg-white rounded-xl shadow-lg p-6">
         <h3 className="text-xl font-bold text-gray-800 mb-6">Gestione Utenti</h3>
         
-        {/* Create new user */}
+        {/* Create new user form */}
         <div className="mb-6 p-4 bg-cyan-50 rounded-lg">
           <h4 className="font-semibold mb-3">Nuovo Istruttore</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <input
               type="text"
               placeholder="Username"
@@ -843,79 +844,136 @@ const AquaSync = () => {
               onChange={(e) => setLocalNewUser({...localNewUser, name: e.target.value})}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
             />
+            <input
+              type="password"
+              placeholder="Password"
+              value={localNewUser.password}
+              onChange={(e) => setLocalNewUser({...localNewUser, password: e.target.value})}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+            />
           </div>
           <button
             onClick={handleLocalCreateUser}
-            className="mt-3 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
+            disabled={!localNewUser.username || !localNewUser.name || !localNewUser.password}
+            className="mt-3 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
           >
             <Plus className="w-4 h-4 inline mr-2" />
             Aggiungi Istruttore
           </button>
         </div>
 
-        {/* User list */}
-        <div className="space-y-2">
-          {users.filter(u => u.role === 'teacher').map(user => (
-            <div key={user.id} className="p-4 border border-gray-200 rounded-lg">
-              {editingUser === user.id ? (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                    <input
-                      type="text"
-                      value={editingData.username || ''}
-                      onChange={(e) => setEditingData({...editingData, username: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Nome completo</label>
-                    <input
-                      type="text"
-                      value={editingData.name || ''}
-                      onChange={(e) => setEditingData({...editingData, name: e.target.value})}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => saveUserChanges(user.id)}
-                      className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors font-medium"
-                    >
-                      Salva
-                    </button>
-                    <button
-                      onClick={cancelEditing}
-                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                    >
-                      Annulla
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-gray-800">{user.name}</div>
-                    <div className="text-sm text-gray-600">@{user.username}</div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => startEditing(user)}
-                      className="p-2 text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteUser(user.id)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+        {/* Modern table interface */}
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Nome Completo
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Username
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Password
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Azioni
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {users.filter(u => u.role === 'teacher').map(user => (
+                  <tr key={user.id} className="hover:bg-gray-50">
+                    {editingUser === user.id ? (
+                      <>
+                        <td className="px-6 py-4">
+                          <input
+                            type="text"
+                            value={editingData.name || ''}
+                            onChange={(e) => setEditingData({...editingData, name: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                            placeholder="Nome completo"
+                          />
+                        </td>
+                        <td className="px-6 py-4">
+                          <input
+                            type="text"
+                            value={editingData.username || ''}
+                            onChange={(e) => setEditingData({...editingData, username: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                            placeholder="Username"
+                          />
+                        </td>
+                        <td className="px-6 py-4">
+                          <input
+                            type="password"
+                            value={editingData.password || ''}
+                            onChange={(e) => setEditingData({...editingData, password: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                            placeholder="Password"
+                          />
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => saveUserChanges(user.id)}
+                              className="inline-flex items-center px-3 py-1.5 bg-cyan-600 text-white text-sm rounded-md hover:bg-cyan-700 transition-colors"
+                            >
+                              Salva
+                            </button>
+                            <button
+                              onClick={cancelEditing}
+                              className="inline-flex items-center px-3 py-1.5 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300 transition-colors"
+                            >
+                              Annulla
+                            </button>
+                          </div>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{user.name}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-600">@{user.username}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm text-gray-600">••••••••</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex gap-2 justify-end">
+                            <button
+                              onClick={() => startEditing(user)}
+                              className="text-cyan-600 hover:text-cyan-700 hover:bg-cyan-50 p-2 rounded-md transition-colors"
+                              title="Modifica utente"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteUser(user.id)}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50 p-2 rounded-md transition-colors"
+                              title="Elimina utente"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+                {users.filter(u => u.role === 'teacher').length === 0 && (
+                  <tr>
+                    <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                      Nessun istruttore trovato. Aggiungi il primo istruttore qui sopra.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     );
