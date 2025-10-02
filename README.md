@@ -19,6 +19,7 @@ Un sistema completo per la gestione e coordinamento delle lezioni di apnea, prog
 
 ### Dashboard Amministratore
 ![Vista Admin](screenshots/aquasync_vista_admin.png)
+*Calendario con orologio in tempo reale e giorno corrente evidenziato in blu*
 
 ### Gestione Utenti
 ![Gestione Utenti](screenshots/aquasync_vista_admin2.png)
@@ -26,20 +27,45 @@ Un sistema completo per la gestione e coordinamento delle lezioni di apnea, prog
 ### Vista Istruttore
 ![Vista Teacher](screenshots/aquasync_vista_teacher.png)
 
+### � Statistiche Avanzate
+![Statistiche](screenshots/aquasync_statistiche.png)
+*Tre grafici a torta: disponibilità istruttori, tipologia lezioni, copertura lezioni*
+
+### ⚠️ Alert Lezioni Scoperte
+![Alert Scoperte](screenshots/aquasync_alert_scoperte.png)
+*Notifica in tempo reale delle lezioni senza istruttori disponibili*
+
+### ⚖️ Bilanciamento Carichi di Lavoro
+![Bilanciamento](screenshots/aquasync_bilanciamento.png)
+*Ranking istruttori per disponibilità con sistema di tiebreaker temporale*
+
+### 🕒 Orologio in Tempo Reale
+![Orologio](screenshots/aquasync_orologio.png)
+*Data e ora aggiornate ogni secondo nella barra superiore*
+
 ---
 
 ## ✨ Funzionalità Principali
 
 ### 👑 **Per gli Amministratori:**
 - 📅 **Creazione e gestione lezioni** con orari specifici
-- 🔄 **Lezioni ricorrenti** (giornaliere, settimanali, mensili, annuali)
+- 🔄 **Lezioni ricorrenti** (giornaliere, settimanali, mensili, annuali) con etichette personalizzate
 - 🏊 **Configurazione tipo lezione** (Piscina/Aula)
 - 👥 **Gestione completa istruttori** (CRUD con password visibili)
 - 📝 **Descrizioni dettagliate** per ogni lezione
 - 👁️ **Visibilità totale** su disponibilità istruttori
-- 🔔 **Sistema notifiche** con ultime disponibilità inserite
-- 📊 **Statistiche dettagliate** per istruttore
-- 🗑️ **Eliminazione batch** di lezioni ricorrenti
+- 🔔 **Sistema notifiche** con ultime 20 disponibilità inserite
+- 📊 **Statistiche avanzate**:
+  - 📈 Grafici a torta per disponibilità istruttori
+  - 🎯 Analisi tipologia lezioni (Teoria/Pratica/Entrambi)
+  - ✅ Percentuale copertura lezioni
+  - ⚖️ Bilanciamento carichi di lavoro con tiebreaker temporale
+- 🗑️ **Eliminazione batch** di intere serie ricorrenti
+- ⚠️ **Monitoraggio lezioni scoperte** con alert e tabelle dettagliate
+- 🎨 **Evidenziazione visiva** lezioni senza istruttori (bordi rossi)
+- 🕒 **Orologio in tempo reale** nella barra superiore
+- 📆 **Giorno corrente evidenziato** nel calendario
+- 🔒 **Controllo esclusivo** eliminazione lezioni
 
 ### 👨‍🏫 **Per gli Istruttori:**
 - ✅ **Dichiarazione disponibilità** per piscina e/o aula
@@ -47,14 +73,23 @@ Un sistema completo per la gestione e coordinamento delle lezioni di apnea, prog
 - 📝 **Note personali** per ogni lezione
 - 📅 **Vista calendario** con tutte le lezioni programmate
 - 🔄 **Aggiornamenti real-time** delle proprie disponibilità
+- ⚠️ **Alert lezioni scoperte** per incentivare copertura
+- 🚫 **Gestione sicura** (solo disponibilità, non eliminazione lezioni)
 
 ### 🎨 **Design e UX:**
 - 📱 **Completamente responsive** (mobile-first)
 - 🎯 **Interfaccia intuitiva** con icone Lucide
 - 🌊 **Tema acquatico** con colori cyan/blu
-- ⚡ **Performance ottimizzate** con Vite
-- 🔒 **Sicurezza** con Row Level Security (RLS)
+- ⚡ **Performance ottimizzate** con Vite + HMR
+- 🔒 **Sicurezza avanzata** con Row Level Security (RLS)
 - 🎨 **Favicon personalizzata** con tema acquatico
+- 🕒 **Orologio live** aggiornato ogni secondo
+- 🎨 **Evidenziazione visiva**:
+  - 🔵 Giorno corrente in blu
+  - 🔴 Lezioni scoperte in rosso
+  - 🟢 Copertura 100% in verde
+- 📊 **Grafici SVG personalizzati** (no librerie esterne)
+- 🔀 **Filtri mensili** persistenti su statistiche e liste
 
 ---
 
@@ -62,10 +97,11 @@ Un sistema completo per la gestione e coordinamento delle lezioni di apnea, prog
 
 ### Frontend:
 - ⚛️ **React 19** - UI Library moderna
-- ⚡ **Vite** - Build tool super veloce
-- 🎨 **Tailwind CSS** - Styling utility-first
-- 🎯 **Lucide React** - Icone moderne
+- ⚡ **Vite 7** - Build tool super veloce
+- 🎨 **Tailwind CSS** - Styling utility-first (CDN)
+- 🎯 **Lucide React** - Icone moderne SVG
 - 📱 **Responsive Design** - Mobile-first
+- 🧹 **ESLint + Prettier** - Code quality e formatting
 
 ### Backend:
 - 🗄️ **Supabase** - Backend-as-a-Service
@@ -115,6 +151,14 @@ npm run dev
 npm run build
 ```
 
+### 6. Lint e Format
+```bash
+npm run lint          # Controlla problemi
+npm run lint:fix      # Corregge automaticamente
+npm run format        # Formatta con Prettier
+npm run format:check  # Verifica formattazione
+```
+
 ---
 
 ## 🗄️ Database Schema
@@ -138,7 +182,10 @@ npm run build
 - pool (BOOLEAN)
 - classroom (BOOLEAN)
 - description (TEXT)
+- recurrence_id (TEXT) -- ID serie ricorrente
+- recurrence_label (TEXT) -- Nome corso
 - created_by (UUID, FK)
+- organization_id (UUID, FK)
 ```
 
 **`teacher_availability`** - Disponibilità istruttori
@@ -149,6 +196,15 @@ npm run build
 - pool (BOOLEAN)
 - classroom (BOOLEAN)
 - note (TEXT)
+- organization_id (UUID, FK)
+```
+
+**`organizations`** - Multi-tenancy
+```sql
+- id (UUID, PK)
+- name (TEXT)
+- slug (TEXT, UNIQUE)
+- created_at, updated_at
 ```
 
 ---
@@ -204,21 +260,31 @@ Stessi step, ma con Vercel invece di Netlify.
 
 ---
 
-## 🛣️ Roadmap Future
+## 🛣️ Roadmap
 
-### v2.0 Pianificato:
+### ✅ v2.0 - Completato (Ottobre 2025):
+- ✅ **Grafici a torta** con statistiche avanzate
+- ✅ **Monitoraggio copertura** lezioni in tempo reale
+- ✅ **Bilanciamento carichi** con ranking istruttori
+- ✅ **Alert visivi** per lezioni scoperte
+- ✅ **Orologio live** nella dashboard
+- ✅ **Evidenziazione giorno corrente**
+- ✅ **ESLint + Prettier** configurati
+- ✅ **Permessi granulari** per ruoli
+
+### 🔮 v2.1 Pianificato:
 - 📧 **Notifiche email** automatiche
 - 📅 **Calendario Google** sync
-- 📊 **Dashboard analytics**
 - 🔔 **Push notifications**
-- 📱 **App mobile nativa**
-- 🌍 **Multi-lingue** (EN/IT)
+- 📱 **Progressive Web App** (PWA)
 
-### v2.5 Pianificato:
+### 🚀 v2.5 Pianificato:
+- 🌍 **Multi-lingue** (EN/IT/ES)
 - 🎓 **Gestione corsi** completi
 - 💰 **Sistema pagamenti**
 - 📄 **Certificazioni digitali**
-- 📈 **Reportistica avanzata**
+- 📈 **Reportistica avanzata PDF**
+- 📱 **App mobile nativa**
 
 ---
 
