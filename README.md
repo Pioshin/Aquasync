@@ -32,13 +32,18 @@ Un sistema completo per la gestione e coordinamento delle lezioni di apnea, prog
 
 ### 👑 **Per gli Amministratori:**
 - 📅 **Creazione e gestione lezioni** con orari specifici
+- 🔄 **Lezioni ricorrenti** (giornaliere, settimanali, mensili, annuali)
 - 🏊 **Configurazione tipo lezione** (Piscina/Aula)
-- 👥 **Gestione completa istruttori** (CRUD)
+- 👥 **Gestione completa istruttori** (CRUD con password visibili)
 - 📝 **Descrizioni dettagliate** per ogni lezione
 - 👁️ **Visibilità totale** su disponibilità istruttori
+- 🔔 **Sistema notifiche** con ultime disponibilità inserite
+- 📊 **Statistiche dettagliate** per istruttore
+- 🗑️ **Eliminazione batch** di lezioni ricorrenti
 
 ### 👨‍🏫 **Per gli Istruttori:**
 - ✅ **Dichiarazione disponibilità** per piscina e/o aula
+- ❌ **Ritiro disponibilità** in qualsiasi momento
 - 📝 **Note personali** per ogni lezione
 - 📅 **Vista calendario** con tutte le lezioni programmate
 - 🔄 **Aggiornamenti real-time** delle proprie disponibilità
@@ -49,6 +54,7 @@ Un sistema completo per la gestione e coordinamento delle lezioni di apnea, prog
 - 🌊 **Tema acquatico** con colori cyan/blu
 - ⚡ **Performance ottimizzate** con Vite
 - 🔒 **Sicurezza** con Row Level Security (RLS)
+- 🎨 **Favicon personalizzata** con tema acquatico
 
 ---
 

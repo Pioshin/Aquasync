@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Users, Lock, LogOut, Plus, Trash2, Edit2, Save, X, Waves, School, BookOpen, Droplets, User, BarChart3, ChevronDown } from 'lucide-react';
+import { Calendar, Users, Lock, LogOut, Plus, Trash2, Edit2, Save, X, Waves, School, BookOpen, Droplets, User, BarChart3, ChevronDown, Eye, EyeOff, Bell, Repeat } from 'lucide-react';
 import './App.css';
 
 // Supabase imports
@@ -20,6 +20,7 @@ const AquaSync = () => {
   const [editingUser, setEditingUser] = useState(null);
   const [newUser, setNewUser] = useState({ username: '', password: '', name: '' });
   const [loading, setLoading] = useState(true);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   // Auto-disable loading after 3 seconds as fallback
   useEffect(() => {
@@ -316,7 +317,7 @@ const AquaSync = () => {
 
     const [editing, setEditing] = useState(shouldAutoEdit);
     const [selectedLessonIndex, setSelectedLessonIndex] = useState(0);
-    const [formData, setFormData] = useState({ time: '09:00', pool: false, classroom: false, description: '', teachers: [] });
+    const [formData, setFormData] = useState({ time: '09:00', pool: false, classroom: false, description: '', teachers: [], isRecurring: false, recurrenceType: 'weekly', recurrenceInterval: 1, recurrenceEnd: null, recurrenceLabel: '' });
     const [isCreatingNew, setIsCreatingNew] = useState(false);
 
     // Current lesson for display/editing
@@ -341,7 +342,7 @@ const AquaSync = () => {
         setFormData(dayLessons[0]);
         setLocalNote(dayLessons[0].teachers?.find(t => t.name === currentUser.name)?.note || '');
       } else {
-        setFormData({ time: '09:00', pool: false, classroom: false, description: '', teachers: [] });
+        setFormData({ time: '09:00', pool: false, classroom: false, description: '', teachers: [], isRecurring: false, recurrenceType: 'weekly', recurrenceInterval: 1, recurrenceEnd: null, recurrenceLabel: '' });
         setLocalNote('');
         setIsCreatingNew(shouldAutoEdit);
       }
@@ -361,12 +362,39 @@ const AquaSync = () => {
 
     const saveLesson = async () => {
       if (isCreatingNew || !currentLesson) {
-        // Create new lesson
+        // Create new lesson(s)
         const lessonWithCreator = { ...formData, created_by: currentUser.id };
-        const { data, error } = await createLesson(lessonWithCreator, selectedDate, currentOrganization.id);
-        if (!error && data) {
+        
+        if (formData.isRecurring) {
+          // Generate a unique ID for this recurrence series
+          const recurrenceId = `rec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          
+          // Create recurring lessons
+          const dates = generateRecurringDates(
+            selectedDate, 
+            formData.recurrenceType, 
+            formData.recurrenceInterval,
+            formData.recurrenceEnd
+          );
+          
+          // Create lesson for each date with the same recurrence_id and label
+          for (const date of dates) {
+            await createLesson({ 
+              ...lessonWithCreator, 
+              recurrence_id: recurrenceId,
+              recurrence_label: formData.recurrenceLabel || null
+            }, date, currentOrganization.id);
+          }
+          
           await reloadLessons();
           setIsCreatingNew(false);
+        } else {
+          // Create single lesson
+          const { data, error } = await createLesson(lessonWithCreator, selectedDate, currentOrganization.id);
+          if (!error && data) {
+            await reloadLessons();
+            setIsCreatingNew(false);
+          }
         }
       } else {
         // Update existing lesson
@@ -376,6 +404,45 @@ const AquaSync = () => {
         }
       }
       setEditing(false);
+    };
+
+    // Generate recurring dates based on recurrence settings
+    const generateRecurringDates = (startDate, type, interval, endDate) => {
+      const dates = [startDate];
+      const start = new Date(startDate);
+      const end = endDate ? new Date(endDate) : null;
+      
+      // Limit to max 52 occurrences to avoid infinite loops
+      const maxOccurrences = 52;
+      let currentDate = new Date(start);
+      
+      for (let i = 0; i < maxOccurrences; i++) {
+        switch (type) {
+          case 'daily':
+            currentDate.setDate(currentDate.getDate() + interval);
+            break;
+          case 'weekly':
+            currentDate.setDate(currentDate.getDate() + (7 * interval));
+            break;
+          case 'monthly':
+            currentDate.setMonth(currentDate.getMonth() + interval);
+            break;
+          case 'yearly':
+            currentDate.setFullYear(currentDate.getFullYear() + interval);
+            break;
+          default:
+            return dates;
+        }
+        
+        // Check if we've reached the end date
+        if (end && currentDate > end) break;
+        
+        // Add date in YYYY-MM-DD format
+        const dateStr = currentDate.toISOString().split('T')[0];
+        dates.push(dateStr);
+      }
+      
+      return dates;
     };
 
     const deleteCurrentLesson = async () => {
@@ -620,6 +687,96 @@ const AquaSync = () => {
                 placeholder="Titolo lezione o note..."
               />
             </div>
+
+            {/* Recurring lesson options - only for new lessons */}
+            {isCreatingNew && (
+              <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg space-y-3">
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.isRecurring || false}
+                      onChange={(e) => setFormData({...formData, isRecurring: e.target.checked})}
+                      className="w-5 h-5 text-purple-600 rounded"
+                    />
+                    <Repeat className="w-5 h-5 text-purple-600" />
+                    <span className="font-medium text-gray-800">Lezione ricorrente</span>
+                  </label>
+                </div>
+
+                {formData.isRecurring && (
+                  <div className="space-y-3 pl-7">
+                    {/* Recurrence Label/Tag */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nome Corso/Tag (opzionale)
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.recurrenceLabel || ''}
+                        onChange={(e) => setFormData({...formData, recurrenceLabel: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                        placeholder="es: Corso Base Lunedì, Allenamento Avanzato..."
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        🏷️ Identifica facilmente questa serie di lezioni
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Frequenza</label>
+                        <select
+                          value={formData.recurrenceType || 'weekly'}
+                          onChange={(e) => setFormData({...formData, recurrenceType: e.target.value})}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                        >
+                          <option value="daily">Giornaliera</option>
+                          <option value="weekly">Settimanale</option>
+                          <option value="monthly">Mensile</option>
+                          <option value="yearly">Annuale</option>
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Ogni</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            max="12"
+                            value={formData.recurrenceInterval || 1}
+                            onChange={(e) => setFormData({...formData, recurrenceInterval: parseInt(e.target.value)})}
+                            className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                          />
+                          <span className="text-sm text-gray-600">
+                            {formData.recurrenceType === 'daily' ? 'giorni' :
+                             formData.recurrenceType === 'weekly' ? 'settimane' :
+                             formData.recurrenceType === 'monthly' ? 'mesi' : 'anni'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Termina il (opzionale)
+                      </label>
+                      <input
+                        type="date"
+                        value={formData.recurrenceEnd || ''}
+                        onChange={(e) => setFormData({...formData, recurrenceEnd: e.target.value})}
+                        min={selectedDate}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Lascia vuoto per creare fino a 52 occorrenze
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
@@ -712,6 +869,18 @@ const AquaSync = () => {
                 </button>
               </div>
             </div>
+            {/* Button to remove own availability */}
+            {currentTeacher && (currentTeacher.pool || currentTeacher.classroom) && (
+              <div className="pt-3 border-t border-cyan-200">
+                <button
+                  onClick={() => removeTeacher(currentUser.name)}
+                  className="w-full px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                >
+                  <X className="w-4 h-4" />
+                  Ritira la mia disponibilità
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -770,6 +939,103 @@ const AquaSync = () => {
         console.error('Error deleting user:', error);
       }
     }
+  };
+
+  // Notifications Component (Admin only)
+  const NotificationsPanel = () => {
+    // Get recent availabilities (last 20)
+    const getRecentAvailabilities = () => {
+      const availabilities = [];
+      
+      Object.entries(lessons).forEach(([dateKey, dayLessons]) => {
+        dayLessons.forEach(lesson => {
+          if (lesson.teachers && lesson.teachers.length > 0) {
+            lesson.teachers.forEach(teacher => {
+              availabilities.push({
+                teacher: teacher.name,
+                username: users.find(u => u.name === teacher.name)?.username || teacher.name,
+                date: dateKey,
+                dateObj: new Date(dateKey),
+                time: lesson.time,
+                pool: teacher.pool,
+                classroom: teacher.classroom,
+                note: teacher.note,
+                lessonDescription: lesson.description
+              });
+            });
+          }
+        });
+      });
+
+      // Sort by date (most recent first) and take last 20
+      return availabilities
+        .sort((a, b) => b.dateObj - a.dateObj)
+        .slice(0, 20);
+    };
+
+    const recentAvailabilities = getRecentAvailabilities();
+
+    return (
+      <div className="bg-white rounded-xl shadow-lg p-6 max-h-[600px] overflow-y-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <Bell className="w-6 h-6 text-cyan-600" />
+            <h3 className="text-xl font-bold text-gray-800">Ultime Disponibilità</h3>
+          </div>
+          <span className="text-sm text-gray-500">{recentAvailabilities.length} registrate</span>
+        </div>
+
+        {recentAvailabilities.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <Bell className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+            <p>Nessuna disponibilità registrata</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {recentAvailabilities.map((avail, index) => (
+              <div key={index} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <User className="w-4 h-4 text-cyan-600" />
+                      <span className="font-semibold text-gray-800">@{avail.username}</span>
+                      <span className="text-sm text-gray-500">({avail.teacher})</span>
+                    </div>
+                    
+                    <div className="text-sm text-gray-600 mb-2">
+                      {new Date(avail.date).toLocaleDateString('it-IT', { 
+                        weekday: 'short', 
+                        day: 'numeric', 
+                        month: 'short' 
+                      })} - Ore {avail.time}
+                    </div>
+
+                    <div className="flex gap-2 flex-wrap">
+                      {avail.pool && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
+                          <Droplets className="w-3 h-3" />
+                          Piscina
+                        </span>
+                      )}
+                      {avail.classroom && (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">
+                          <BookOpen className="w-3 h-3" />
+                          Aula
+                        </span>
+                      )}
+                    </div>
+
+                    {avail.note && (
+                      <p className="text-xs text-gray-600 mt-2 italic">\"{avail.note}\"</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   // Monthly Summary Component
@@ -903,23 +1169,84 @@ const AquaSync = () => {
           </div>
 
           {/* Lessons by Type */}
-          <div className="bg-gray-50 p-6 rounded-lg">
-            <h4 className="text-lg font-semibold text-gray-800 mb-4">Lezioni per Tipo</h4>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="w-4 h-4 text-green-600" />
-                  <span className="text-gray-700">Teoria:</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-gray-50 p-6 rounded-lg">
+              <h4 className="text-lg font-semibold text-gray-800 mb-4">Lezioni per Tipo</h4>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-green-600" />
+                    <span className="text-gray-700">Teoria:</span>
+                  </div>
+                  <span className="font-semibold text-gray-800">{theoryLessons + bothLessons}</span>
                 </div>
-                <span className="font-semibold text-gray-800">{theoryLessons + bothLessons}</span>
-              </div>
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Droplets className="w-4 h-4 text-blue-600" />
-                  <span className="text-gray-700">Pratica:</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Droplets className="w-4 h-4 text-blue-600" />
+                    <span className="text-gray-700">Pratica:</span>
+                  </div>
+                  <span className="font-semibold text-gray-800">{practiceLessons + bothLessons}</span>
                 </div>
-                <span className="font-semibold text-gray-800">{practiceLessons + bothLessons}</span>
+              </div>
+            </div>
+
+            {/* Instructors Statistics */}
+            <div className="bg-gray-50 p-6 rounded-lg">
+              <h4 className="text-lg font-semibold text-gray-800 mb-4">Statistiche Istruttori</h4>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {(() => {
+                  // Calculate stats per instructor
+                  const instructorStats = {};
+                  monthLessons.forEach(lesson => {
+                    if (lesson.teachers) {
+                      lesson.teachers.forEach(teacher => {
+                        if (!instructorStats[teacher.name]) {
+                          instructorStats[teacher.name] = {
+                            name: teacher.name,
+                            total: 0,
+                            pool: 0,
+                            classroom: 0
+                          };
+                        }
+                        instructorStats[teacher.name].total++;
+                        if (teacher.pool) instructorStats[teacher.name].pool++;
+                        if (teacher.classroom) instructorStats[teacher.name].classroom++;
+                      });
+                    }
+                  });
+
+                  // Convert to array and sort by total
+                  const sortedInstructors = Object.values(instructorStats).sort((a, b) => b.total - a.total);
+
+                  return sortedInstructors.length > 0 ? sortedInstructors.map(instructor => (
+                    <div key={instructor.name} className="flex items-center justify-between py-2 border-b border-gray-200 last:border-0">
+                      <div className="flex items-center gap-2">
+                        <User className="w-4 h-4 text-cyan-600" />
+                        <span className="text-sm font-medium text-gray-700">
+                          {users.find(u => u.name === instructor.name)?.username || instructor.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs">
+                        <span className="font-semibold text-gray-800">{instructor.total}</span>
+                        {instructor.pool > 0 && (
+                          <span className="flex items-center gap-1 text-blue-600">
+                            <Droplets className="w-3 h-3" />
+                            {instructor.pool}
+                          </span>
+                        )}
+                        {instructor.classroom > 0 && (
+                          <span className="flex items-center gap-1 text-green-600">
+                            <BookOpen className="w-3 h-3" />
+                            {instructor.classroom}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )) : (
+                    <p className="text-sm text-gray-500">Nessuna disponibilità registrata</p>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -930,24 +1257,48 @@ const AquaSync = () => {
 
   // Lessons Summary Component
   const LessonsSummary = () => {
-    // Get all lessons from the current month and upcoming
-    const getAllLessons = () => {
-      const allLessons = [];
-      Object.entries(lessons).forEach(([dateKey, dayLessons]) => {
-        dayLessons.forEach(lesson => {
-          allLessons.push({
-            ...lesson,
-            date: dateKey,
-            dateObj: new Date(dateKey)
-          });
-        });
-      });
+    const [selectedMonth, setSelectedMonth] = useState(new Date());
 
-      // Sort by date
-      return allLessons.sort((a, b) => a.dateObj - b.dateObj);
+    // Get available months from lessons data
+    const getAvailableMonths = () => {
+      const months = new Set();
+      Object.keys(lessons).forEach(dateKey => {
+        const date = new Date(dateKey);
+        const monthKey = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+        months.add(monthKey);
+      });
+      return Array.from(months).sort().reverse(); // Most recent first
     };
 
-    const allLessons = getAllLessons();
+    // Get lessons for selected month
+    const getMonthLessons = () => {
+      const year = selectedMonth.getFullYear();
+      const month = selectedMonth.getMonth();
+
+      const monthLessons = [];
+      Object.entries(lessons).forEach(([dateKey, dayLessons]) => {
+        const lessonDate = new Date(dateKey);
+        if (lessonDate.getFullYear() === year && lessonDate.getMonth() === month) {
+          dayLessons.forEach(lesson => {
+            monthLessons.push({
+              ...lesson,
+              date: dateKey,
+              dateObj: lessonDate
+            });
+          });
+        }
+      });
+      // Sort by date
+      return monthLessons.sort((a, b) => a.dateObj - b.dateObj);
+    };
+
+    const monthLessons = getMonthLessons();
+    const availableMonths = getAvailableMonths();
+
+    const handleMonthChange = (monthString) => {
+      const [year, month] = monthString.split('-');
+      setSelectedMonth(new Date(parseInt(year), parseInt(month) - 1, 1));
+    };
 
     const handleEditLesson = (lesson) => {
       setSelectedDate(lesson.date);
@@ -964,11 +1315,60 @@ const AquaSync = () => {
       }
     };
 
+    const handleDeleteRecurring = async (recurrenceId) => {
+      // Count how many lessons will be deleted
+      const recurringLessons = [];
+      let recurrenceLabel = null;
+      Object.entries(lessons).forEach(([dateKey, dayLessons]) => {
+        dayLessons.forEach(lesson => {
+          if (lesson.recurrence_id === recurrenceId) {
+            recurringLessons.push(lesson);
+            if (!recurrenceLabel && lesson.recurrence_label) {
+              recurrenceLabel = lesson.recurrence_label;
+            }
+          }
+        });
+      });
+
+      const labelText = recurrenceLabel ? `"${recurrenceLabel}"` : 'questa serie';
+      if (window.confirm(`Sei sicuro di voler eliminare tutte le ${recurringLessons.length} lezioni ricorrenti di ${labelText}?`)) {
+        // Delete all lessons with same recurrence_id
+        for (const lesson of recurringLessons) {
+          await deleteLesson(lesson.id);
+        }
+        await reloadLessons();
+      }
+    };
+
     return (
       <div className="bg-white rounded-xl shadow-lg p-6">
-        <h3 className="text-xl font-bold text-gray-800 mb-6">Lezioni Programmate</h3>
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-xl font-bold text-gray-800">Lezioni Programmate</h3>
+          
+          {/* Month selector */}
+          {availableMonths.length > 1 && (
+            <div className="relative">
+              <select
+                value={`${selectedMonth.getFullYear()}-${(selectedMonth.getMonth() + 1).toString().padStart(2, '0')}`}
+                onChange={(e) => handleMonthChange(e.target.value)}
+                className="appearance-none bg-white border border-gray-300 rounded-lg px-4 py-2 pr-8 focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              >
+                {availableMonths.map(monthKey => {
+                  const [year, month] = monthKey.split('-');
+                  const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+                  return (
+                    <option key={monthKey} value={monthKey}>
+                      {date.toLocaleDateString('it-IT', { year: 'numeric', month: 'long' })}
+                    </option>
+                  );
+                })}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+          )}
+        </div>
 
-        {allLessons.length === 0 ? (
+        {monthLessons.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <School className="w-16 h-16 mx-auto mb-4 text-gray-300" />
             <p>Nessuna lezione programmata</p>
@@ -976,7 +1376,7 @@ const AquaSync = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {allLessons.map((lesson, index) => (
+            {monthLessons.map((lesson, index) => (
               <div key={`${lesson.date}-${lesson.id}-${index}`} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
@@ -985,6 +1385,12 @@ const AquaSync = () => {
                         {lesson.description || `Lezione ${lesson.pool ? 'Piscina' : ''} ${lesson.classroom ? 'Aula' : ''}`.trim()}
                       </h4>
                       <div className="flex gap-2">
+                        {lesson.recurrence_id && (
+                          <div className="flex items-center gap-1 px-2 py-1 bg-purple-100 text-purple-700 rounded-full text-xs">
+                            <Repeat className="w-3 h-3" />
+                            <span>{lesson.recurrence_label || 'Ricorrente'}</span>
+                          </div>
+                        )}
                         {lesson.pool && (
                           <div className="flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
                             <Droplets className="w-3 h-3" />
@@ -1030,6 +1436,16 @@ const AquaSync = () => {
                     >
                       Modifica
                     </button>
+                    {lesson.recurrence_id && currentUser.role === 'admin' && (
+                      <button
+                        onClick={() => handleDeleteRecurring(lesson.recurrence_id)}
+                        className="px-3 py-1.5 text-sm text-purple-600 hover:bg-purple-50 rounded-md transition-colors border border-purple-200 flex items-center gap-1"
+                        title="Elimina tutte le lezioni ricorrenti"
+                      >
+                        <Repeat className="w-3 h-3" />
+                        Elimina serie
+                      </button>
+                    )}
                     <button
                       onClick={() => handleDeleteLesson(lesson.id)}
                       className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-md transition-colors border border-red-200"
@@ -1052,6 +1468,31 @@ const AquaSync = () => {
     const [editingData, setEditingData] = useState({});
     // Local state for new user creation to avoid losing focus
     const [localNewUser, setLocalNewUser] = useState({ username: '', name: '', password: '' });
+    // Local state to track which passwords are visible
+    const [visiblePasswords, setVisiblePasswords] = useState({});
+
+    // Populate editingData when editingUser changes
+    useEffect(() => {
+      if (editingUser) {
+        const user = users.find(u => u.id === editingUser);
+        if (user) {
+          setEditingData({
+            username: user.username || '',
+            name: user.name || '',
+            password: user.password || 'teacher123'
+          });
+        }
+      } else {
+        setEditingData({});
+      }
+    }, [editingUser, users]);
+
+    const togglePasswordVisibility = (userId) => {
+      setVisiblePasswords(prev => ({
+        ...prev,
+        [userId]: !prev[userId]
+      }));
+    };
 
     const handleUpdateUser = async (userId, updates) => {
       const { data, error } = await updateUser(userId, updates);
@@ -1065,12 +1506,9 @@ const AquaSync = () => {
     };
 
     const startEditing = (user) => {
+      console.log('Starting edit for user:', user);
       setEditingUser(user.id);
-      setEditingData({
-        username: user.username,
-        name: user.name,
-        password: user.password || 'teacher123'
-      });
+      // editingData will be populated by useEffect
     };
 
     const saveUserChanges = (userId) => {
@@ -1218,7 +1656,18 @@ const AquaSync = () => {
                           <div className="text-sm text-gray-600">@{user.username}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-600">••••••••</div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm text-gray-600 font-mono">
+                              {visiblePasswords[user.id] ? (user.password || 'N/A') : '••••••••'}
+                            </div>
+                            <button
+                              onClick={() => togglePasswordVisibility(user.id)}
+                              className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-100 transition-colors"
+                              title={visiblePasswords[user.id] ? 'Nascondi password' : 'Mostra password'}
+                            >
+                              {visiblePasswords[user.id] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <div className="flex gap-2 justify-end">
@@ -1290,10 +1739,11 @@ const AquaSync = () => {
                   onClick={() => {
                     setShowUserManager(false);
                     setShowSummary(false);
+                    setShowNotifications(false);
                   }}
                   className={`
                     flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-medium text-sm
-                    ${!showUserManager && !showSummary
+                    ${!showUserManager && !showSummary && !showNotifications
                       ? 'bg-cyan-600 text-white shadow-md'
                       : 'text-cyan-600 hover:bg-cyan-50 border border-cyan-200'
                     }
@@ -1308,6 +1758,7 @@ const AquaSync = () => {
                   onClick={() => {
                     setShowUserManager(false);
                     setShowSummary(true);
+                    setShowNotifications(false);
                   }}
                   className={`
                     flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-medium text-sm
@@ -1323,23 +1774,46 @@ const AquaSync = () => {
                 </button>
 
                 {currentUser.role === 'admin' && (
-                  <button
-                    onClick={() => {
-                      setShowUserManager(true);
-                      setShowSummary(false);
-                    }}
-                    className={`
-                      flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-medium text-sm
-                      ${showUserManager
-                        ? 'bg-cyan-600 text-white shadow-md'
-                        : 'text-cyan-600 hover:bg-cyan-50 border border-cyan-200'
-                      }
-                    `}
-                    title="Gestisci istruttori"
-                  >
-                    <Users className="w-5 h-5" />
-                    <span className="hidden sm:inline">Istruttori</span>
-                  </button>
+                  <>
+                    <button
+                      onClick={() => {
+                        setShowUserManager(true);
+                        setShowSummary(false);
+                        setShowNotifications(false);
+                      }}
+                      className={`
+                        flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-medium text-sm
+                        ${showUserManager
+                          ? 'bg-cyan-600 text-white shadow-md'
+                          : 'text-cyan-600 hover:bg-cyan-50 border border-cyan-200'
+                        }
+                      `}
+                      title="Gestisci istruttori"
+                    >
+                      <Users className="w-5 h-5" />
+                      <span className="hidden sm:inline">Istruttori</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setShowNotifications(true);
+                        setShowUserManager(false);
+                        setShowSummary(false);
+                        setSelectedDate(null);
+                      }}
+                      className={`
+                        flex items-center gap-2 px-3 py-2 rounded-lg transition-all font-medium text-sm relative
+                        ${showNotifications
+                          ? 'bg-cyan-600 text-white shadow-md'
+                          : 'text-cyan-600 hover:bg-cyan-50 border border-cyan-200'
+                        }
+                      `}
+                      title="Notifiche disponibilità"
+                    >
+                      <Bell className="w-5 h-5" />
+                      <span className="hidden sm:inline">Notifiche</span>
+                    </button>
+                  </>
                 )}
               </div>
 
@@ -1358,6 +1832,8 @@ const AquaSync = () => {
         <main className="container mx-auto px-4 py-8">
           {showUserManager && currentUser.role === 'admin' ? (
             <UserManager />
+          ) : showNotifications && currentUser.role === 'admin' ? (
+            <NotificationsPanel />
           ) : showSummary ? (
             <MonthlySummary />
           ) : (

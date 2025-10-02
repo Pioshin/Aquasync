@@ -2,6 +2,78 @@
 
 Tutte le modifiche notevoli a questo progetto saranno documentate in questo file.
 
+## [2.0.0] - 2025-10-02
+
+### 🎉 Rilascio Maggiore - Lezioni Ricorrenti & Miglioramenti UX
+
+#### 🔄 Lezioni Ricorrenti
+- **Sistema completo di lezioni ricorrenti** con:
+  - 🏷️ **Nome Corso/Tag personalizzabile** (es: "Corso Base Lunedì", "Allenamento Avanzato")
+  - 📅 4 tipi di frequenza: Giornaliera, Settimanale, Mensile, Annuale
+  - 🔢 Intervallo personalizzabile (es: ogni 2 settimane)
+  - 📆 Data fine opzionale (max 52 occorrenze)
+  - 🆔 Sistema `recurrence_id` per identificare serie di lezioni
+  - 🔗 Tutte le lezioni della serie hanno parametri identici
+- **UI intuitiva** con sezione viola dedicata
+- **Badge personalizzato** mostra il nome del corso (es: 🔄 Corso Base Lunedì)
+- **Eliminazione batch** di tutte le lezioni ricorrenti con un click
+- **Script SQL** per setup database (`sql/add_recurrence_field.sql`)
+- **Documentazione completa** in `docs/RECURRING_LESSONS.md`
+
+#### 🎯 Filtro Mensile Lezioni
+- **Filtro per mese** nella lista "Lezioni Programmate"
+- **Dropdown navigazione** tra mesi con lezioni disponibili
+- **Performance migliorate** - mostra solo lezioni del mese selezionato
+- **Stesso stile** del filtro nel Riepilogo Mensile
+
+#### 👨‍🏫 Gestione Istruttori Migliorata
+- **Password visibili** con sistema mostra/nascondi (icona occhio 👁️)
+- **Campi pre-compilati** in modalità modifica
+- **Ritiro disponibilità** - istruttori possono rimuovere la propria disponibilità
+- **Bottone rosso** "Ritira la mia disponibilità" nella sezione docente
+
+#### 🔔 Sistema Notifiche Admin
+- **Pannello Notifiche** dedicato per admin
+- **Ultime 20 disponibilità** inserite con:
+  - Username e nome completo istruttore
+  - Data, orario e tipo lezione
+  - Badge colorati (Piscina/Aula)
+  - Note personali (se presenti)
+- **Ordinamento** dalla più recente alla più vecchia
+- **Bottone dedicato** nella navbar admin
+
+#### 📊 Statistiche Istruttori Dettagliate
+- **Nuova colonna** "Statistiche Istruttori" nel riepilogo mensile
+- **Dati per ogni istruttore:**
+  - 🏷️ Username visibile
+  - 🔢 Totale disponibilità date
+  - 💧 Numero disponibilità piscina
+  - 📖 Numero disponibilità aula
+- **Ordinamento** per numero totale disponibilità
+- **Design coerente** con icone Lucide
+
+#### 🎨 Favicon Personalizzata
+- **Favicon SVG** custom con tema acquatico
+- **Design** con onde e goccia d'acqua
+- **Colori** cyan/blue coerenti con l'app
+- **Titolo pagina** completo e descrittivo
+
+### 🛠️ Miglioramenti Tecnici
+- Aggiunto campo `recurrence_id` alla tabella lessons
+- Indice database per performance query ricorrenti
+- Funzione `generateRecurringDates()` per calcolo date
+- Componente `NotificationsPanel` per admin
+- Hook `useEffect` per sincronizzazione `editingData`
+- Gestione stato `showNotifications`
+
+### 📚 Documentazione
+- Guida completa lezioni ricorrenti
+- Script SQL per setup
+- README aggiornato con nuove funzionalità
+- Esempi pratici d'uso
+
+---
+
 ## [1.3.0] - 2025-01-10
 
 ### ✨ Nuove Funzionalità
