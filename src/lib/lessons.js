@@ -142,26 +142,63 @@ export const createLesson = async (lessonData, dateKey, organizationId) => {
         description: lessonData.description,
         created_by: lessonData.created_by,
         organization_id: organizationId,
+        recurrence_id: lessonData.recurrence_id || null,
+        recurrence_label: lessonData.recurrence_label || null,
       },
     ])
     .select()
     .single();
-
+  if (error) {
+    console.error('createLesson failed:', {
+      error,
+      payload: {
+        date: dateKey,
+        time: lessonData.time,
+        pool: lessonData.pool,
+        classroom: lessonData.classroom,
+        description: lessonData.description,
+        created_by: lessonData.created_by,
+        organization_id: organizationId,
+        recurrence_id: lessonData.recurrence_id || null,
+        recurrence_label: lessonData.recurrence_label || null,
+      },
+    });
+  }
   return { data, error };
 };
 
 export const updateLesson = async (lessonId, updates) => {
+  // Create a clean object with only the fields that can be updated.
+  const lessonData = {
+    time: updates.time,
+    pool: updates.pool,
+    classroom: updates.classroom,
+    description: updates.description,
+  };
+
+  // Filter out undefined values so they are not sent to Supabase,
+  // which could unintentionally nullify existing values.
+  Object.keys(lessonData).forEach(key => {
+    if (lessonData[key] === undefined) {
+      delete lessonData[key];
+    }
+  });
+
+  // If there are no valid fields to update, we can avoid a DB call.
+  if (Object.keys(lessonData).length === 0) {
+    console.warn('updateLesson called with no valid fields to update.');
+    return { data: null, error: null }; // Not an error, just nothing to do.
+  }
+
   const { data, error } = await supabase
     .from('lessons')
-    .update({
-      time: updates.time,
-      pool: updates.pool,
-      classroom: updates.classroom,
-      description: updates.description,
-    })
+    .update(lessonData) // Pass the sanitized object
     .eq('id', lessonId)
     .select()
     .single();
+  if (error) {
+    console.error('updateLesson failed:', { error, lessonId, updates: lessonData });
+  }
 
   return { data, error };
 };
@@ -170,6 +207,48 @@ export const deleteLesson = async lessonId => {
   const { error } = await supabase.from('lessons').delete().eq('id', lessonId);
 
   return { error };
+};
+
+// Bulk update all lessons in a series from a given date (inclusive)
+export const updateSeriesFromDate = async (
+  recurrenceId,
+  fromDate, // 'YYYY-MM-DD'
+  updates,
+  organizationId
+) => {
+  // Only allow updating the editable fields, same policy as updateLesson
+  const allowed = {
+    time: updates.time,
+    pool: updates.pool,
+    classroom: updates.classroom,
+    description: updates.description,
+  };
+  Object.keys(allowed).forEach(key => {
+    if (allowed[key] === undefined) delete allowed[key];
+  });
+
+  if (Object.keys(allowed).length === 0) {
+    return { data: null, error: null };
+  }
+
+  const { data, error } = await supabase
+    .from('lessons')
+    .update(allowed)
+    .eq('recurrence_id', recurrenceId)
+    .gte('date', fromDate)
+    .eq('organization_id', organizationId)
+    .select();
+  if (error) {
+    console.error('updateSeriesFromDate failed:', {
+      error,
+      recurrenceId,
+      fromDate,
+      updates: allowed,
+      organizationId,
+    });
+  }
+
+  return { data, error };
 };
 
 // Teacher availability functions

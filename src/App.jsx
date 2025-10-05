@@ -32,6 +32,7 @@ import {
   deleteLesson,
   updateTeacherAvailability,
   removeTeacherAvailability,
+  updateSeriesFromDate,
 } from './lib/lessons.js';
 import { getOrganizations } from './lib/organizations.js';
 
@@ -52,6 +53,22 @@ const AquaSync = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [selectedMonthSummary, setSelectedMonthSummary] = useState(new Date());
   const [selectedMonthLessons, setSelectedMonthLessons] = useState(new Date());
+  const [lessonToEdit, setLessonToEdit] = useState(null);
+
+  // Check for saved user in localStorage on initial load
+  useEffect(() => {
+    try {
+      const savedUser = localStorage.getItem('aquaSyncUser');
+      if (savedUser) {
+        const user = JSON.parse(savedUser);
+        setCurrentUser(user);
+        setCurrentOrganization(user.organization);
+      }
+    } catch (error) {
+      console.error('Failed to parse user from localStorage', error);
+      localStorage.removeItem('aquaSyncUser');
+    }
+  }, []);
 
   // Auto-disable loading after 3 seconds as fallback
   useEffect(() => {
@@ -257,7 +274,10 @@ const AquaSync = () => {
     };
 
     const formatDateKey = date => {
-      return date.toISOString().split('T')[0];
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
     };
 
     const days = getDaysInMonth(currentMonth);
@@ -396,6 +416,12 @@ const AquaSync = () => {
                           <span className="font-mono font-semibold text-gray-700">
                             {lesson.time}
                           </span>
+                          {lesson.recurrence_id && (
+                            <Repeat
+                              className="w-3 h-3 text-purple-600"
+                              title="Lezione ricorrente"
+                            />
+                          )}
                           {lesson.pool && <Waves className="w-4 h-4 text-blue-600" />}
                           {lesson.classroom && <School className="w-4 h-4 text-green-600" />}
                         </div>
@@ -420,7 +446,7 @@ const AquaSync = () => {
   };
 
   // Lesson detail panel
-  const LessonPanel = () => {
+  const LessonPanel = ({ lessonToEdit, setLessonToEdit }) => {
     // All hooks must be called before any early returns
     const dayLessons = selectedDate ? lessons[selectedDate] || [] : [];
     const hasLessons = dayLessons.length > 0;
@@ -443,6 +469,7 @@ const AquaSync = () => {
       recurrenceLabel: '',
     });
     const [isCreatingNew, setIsCreatingNew] = useState(false);
+  const [applyToSeries, setApplyToSeries] = useState(false);
 
     // Current lesson for display/editing
     const currentLesson = hasLessons ? dayLessons[selectedLessonIndex] || dayLessons[0] : null;
@@ -488,38 +515,100 @@ const AquaSync = () => {
     useEffect(() => {
       if (currentLesson) {
         setLocalNote(currentLesson.teachers?.find(t => t.name === currentUser.name)?.note || '');
-        setFormData(currentLesson);
+        // Merge current lesson with default recurring fields (in case they're missing)
+        setFormData({
+          ...currentLesson,
+          isRecurring: false,
+          recurrenceType: 'weekly',
+          recurrenceInterval: 1,
+          recurrenceEnd: null,
+          recurrenceLabel: currentLesson.recurrence_label || '',
+        });
+        // If the lesson is part of a series, default to applying to series
+        setApplyToSeries(!!currentLesson.recurrence_id);
       }
     }, [selectedLessonIndex, currentLesson, currentUser.name]);
+
+    // Handle external edit request (from lesson list)
+    useEffect(() => {
+      if (lessonToEdit && selectedDate === lessonToEdit.date) {
+        const dayLessons = lessons[selectedDate] || [];
+        const lessonIndex = dayLessons.findIndex(l => l.id === lessonToEdit.id);
+
+        if (lessonIndex !== -1 && currentUser.role === 'admin') {
+          setSelectedLessonIndex(lessonIndex);
+          // Merge lesson data with default recurring fields
+          setFormData({
+            ...dayLessons[lessonIndex],
+            isRecurring: false,
+            recurrenceType: 'weekly',
+            recurrenceInterval: 1,
+            recurrenceEnd: null,
+            recurrenceLabel: dayLessons[lessonIndex].recurrence_label || '',
+          });
+          setIsCreatingNew(false);
+          setEditing(true);
+          setApplyToSeries(!!dayLessons[lessonIndex].recurrence_id);
+          // Clear the lesson to edit after processing
+          setLessonToEdit(null);
+        }
+      }
+    }, [lessonToEdit, selectedDate, lessons, currentUser.role]);
 
     // Early return after all hooks
     if (!selectedDate) return null;
 
     const saveLesson = async () => {
+      // Utility to normalize time to HH:MM:SS
+      const normalizeTime = t => (t && t.length === 5 ? `${t}:00` : t || '09:00:00');
+
       if (isCreatingNew || !currentLesson) {
         // Create new lesson(s)
-        const lessonWithCreator = { ...formData, created_by: currentUser.id };
+        const lessonWithCreator = { ...formData, created_by: currentUser.id, time: normalizeTime(formData.time) };
 
         if (formData.isRecurring) {
-          // Generate a unique ID for this recurrence series
-          const recurrenceId = `rec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-          // Create recurring lessons
-          const dates = generateRecurringDates(
-            selectedDate,
-            formData.recurrenceType,
-            formData.recurrenceInterval,
-            formData.recurrenceEnd
-          );
-
-          // Create lesson for each date with the same recurrence_id and label
-          for (const date of dates) {
-            const lessonData = {
-              ...lessonWithCreator,
-              recurrence_id: recurrenceId,
-              recurrence_label: formData.recurrenceLabel || null,
-            };
-            await createLesson(lessonData, date, currentOrganization.id);
+          // Determine recurrence id: reuse existing if joinSeries selected
+          let recurrenceId = null;
+          if (formData.joinSeries && formData.joinSeriesId) {
+            recurrenceId = formData.joinSeriesId;
+            // Reuse the exact dates of the existing series from selectedDate onward
+            const all = Object.entries(lessons)
+              .flatMap(([date, arr]) => arr.map(l => ({ ...l, date })));
+            const seriesLessons = all.filter(l => l.recurrence_id === recurrenceId && l.date >= selectedDate);
+            const targetDates = seriesLessons
+              .map(l => l.date)
+              .sort();
+            const recurrenceLabelFromSeries =
+              seriesLessons.find(l => l.recurrence_label)?.recurrence_label || formData.recurrenceLabel || null;
+            for (const date of targetDates) {
+              // avoid duplicate at same date/time
+              const dayLs = lessons[date] || [];
+              const existsSameTime = dayLs.some(l => l.time === lessonWithCreator.time);
+              if (existsSameTime) continue;
+              const lessonData = {
+                ...lessonWithCreator,
+                recurrence_id: recurrenceId,
+                recurrence_label: recurrenceLabelFromSeries,
+              };
+              await createLesson(lessonData, date, currentOrganization.id);
+            }
+          } else {
+            recurrenceId = `rec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            // Generate recurring dates starting from selected date (new independent series)
+            const dates = generateRecurringDates(
+              selectedDate,
+              formData.recurrenceType,
+              formData.recurrenceInterval,
+              formData.recurrenceEnd
+            );
+            for (const date of dates) {
+              const lessonData = {
+                ...lessonWithCreator,
+                recurrence_id: recurrenceId,
+                recurrence_label: formData.recurrenceLabel || null,
+              };
+              await createLesson(lessonData, date, currentOrganization.id);
+            }
           }
 
           await reloadLessons();
@@ -538,9 +627,32 @@ const AquaSync = () => {
         }
       } else {
         // Update existing lesson
-        const { data, error } = await updateLesson(currentLesson.id, formData);
-        if (!error) {
+        if (applyToSeries && currentLesson.recurrence_id) {
+          // Update all FUTURE lessons in the recurring series (including today)
+          const now = new Date();
+          const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+          const updateData = {
+            time: normalizeTime(formData.time),
+            pool: formData.pool,
+            classroom: formData.classroom,
+            description: formData.description,
+          };
+
+          await updateSeriesFromDate(
+            currentLesson.recurrence_id,
+            today,
+            updateData,
+            currentOrganization.id
+          );
           await reloadLessons();
+          // keep applyToSeries true for future edits unless user toggles off
+        } else {
+          // Update single lesson
+          const { error } = await updateLesson(currentLesson.id, { ...formData, time: normalizeTime(formData.time) });
+          if (!error) {
+            await reloadLessons();
+          }
         }
       }
       setEditing(false);
@@ -549,7 +661,9 @@ const AquaSync = () => {
     // Generate recurring dates based on recurrence settings
     const generateRecurringDates = (startDate, type, interval, endDate) => {
       const dates = [startDate];
-      const start = new Date(startDate);
+      // Parse date string manually to avoid timezone issues. 'new Date(YYYY-MM-DD)' is unreliable.
+      const [year, month, day] = startDate.split('-').map(Number);
+      const start = new Date(year, month - 1, day);
       const end = endDate ? new Date(endDate) : null;
 
       // Limit to max 52 occurrences to avoid infinite loops
@@ -575,10 +689,13 @@ const AquaSync = () => {
         }
 
         // Check if we've reached the end date
-        if (end && currentDate > end) break;
+        if (end && currentDate >= end) break;
 
-        // Add date in YYYY-MM-DD format
-        const dateStr = currentDate.toISOString().split('T')[0];
+        // Add date in YYYY-MM-DD format, using local date parts to avoid timezone conversion errors from toISOString().
+        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(
+          2,
+          '0'
+        )}-${String(currentDate.getDate()).padStart(2, '0')}`;
         dates.push(dateStr);
       }
 
@@ -606,16 +723,6 @@ const AquaSync = () => {
       const teacherName = currentUser.name;
       const teachers = currentLesson.teachers || [];
       const existingTeacher = teachers.find(t => t.name === teacherName);
-
-      let newTeachers;
-      if (existingTeacher) {
-        newTeachers = teachers.map(t => (t.name === teacherName ? { ...t, [type]: !t[type] } : t));
-      } else {
-        newTeachers = [
-          ...teachers,
-          { name: teacherName, pool: type === 'pool', classroom: type === 'classroom', note: '' },
-        ];
-      }
 
       // Update teacher availability in database
       const teacher = users.find(u => u.name === teacherName);
@@ -726,6 +833,14 @@ const AquaSync = () => {
                         classroom: false,
                         description: '',
                         teachers: [],
+                        // defaults for recurring creation
+                        isRecurring: false,
+                        joinSeries: false,
+                        joinSeriesId: null,
+                        recurrenceType: 'weekly',
+                        recurrenceInterval: 1,
+                        recurrenceEnd: null,
+                        recurrenceLabel: '',
                       });
                       setIsCreatingNew(true);
                       setEditing(true);
@@ -748,6 +863,7 @@ const AquaSync = () => {
                         setFormData(currentLesson);
                         setIsCreatingNew(false);
                         setEditing(true);
+                        if (currentLesson?.recurrence_id) setApplyToSeries(true);
                       }}
                       className="p-2 text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
                     >
@@ -787,6 +903,7 @@ const AquaSync = () => {
                     onClick={() => {
                       setEditing(false);
                       setIsCreatingNew(false);
+                      setApplyToSeries(false);
                       if (currentLesson) {
                         setFormData(currentLesson);
                       }
@@ -845,6 +962,114 @@ const AquaSync = () => {
               />
             </div>
 
+            {/* Apply to series option - only when editing an existing recurring lesson */}
+            {!isCreatingNew && currentLesson?.recurrence_id && (
+              <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={applyToSeries}
+                    onChange={e => setApplyToSeries(e.target.checked)}
+                    className="w-5 h-5 text-purple-600 rounded"
+                  />
+                  <Repeat className="w-5 h-5 text-purple-600" />
+                  <span className="font-medium text-gray-800">
+                    Applica modifiche a tutta la serie ricorrente
+                  </span>
+                </label>
+                {currentLesson.recurrence_label && (
+                  <p className="text-sm text-gray-600 mt-2 pl-7">
+                    🏷️ {currentLesson.recurrence_label}
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 mt-2 pl-7">
+                  Attenzione: le modifiche verranno applicate a tutte le lezioni della serie
+                </p>
+              </div>
+            )}
+
+            {/* Admin instructor assignment section */}
+            {!isCreatingNew && currentLesson && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+                <h4 className="font-semibold text-gray-800 flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Assegna istruttori alla lezione
+                </h4>
+                <div className="space-y-2">
+                  {users
+                    .filter(u => u.role === 'teacher')
+                    .map(teacher => {
+                      const existingTeacher = currentLesson.teachers?.find(
+                        t => t.name === teacher.name
+                      );
+                      return (
+                        <div
+                          key={teacher.id}
+                          className="p-3 bg-white rounded-lg border border-gray-200 space-y-2"
+                        >
+                          <div className="font-medium text-gray-800">{teacher.name}</div>
+                          <div className="flex gap-4">
+                            {formData.pool && (
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={existingTeacher?.pool || false}
+                                  onChange={async () => {
+                                    const availability = {
+                                      pool: !existingTeacher?.pool,
+                                      classroom: existingTeacher?.classroom || false,
+                                      note: existingTeacher?.note || '',
+                                    };
+                                    await updateTeacherAvailability(
+                                      currentLesson.id,
+                                      teacher.id,
+                                      availability,
+                                      currentOrganization.id
+                                    );
+                                    await reloadLessons();
+                                  }}
+                                  className="w-4 h-4 text-blue-600 rounded"
+                                />
+                                <Waves className="w-4 h-4 text-blue-600" />
+                                <span className="text-sm">Piscina</span>
+                              </label>
+                            )}
+                            {formData.classroom && (
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={existingTeacher?.classroom || false}
+                                  onChange={async () => {
+                                    const availability = {
+                                      pool: existingTeacher?.pool || false,
+                                      classroom: !existingTeacher?.classroom,
+                                      note: existingTeacher?.note || '',
+                                    };
+                                    await updateTeacherAvailability(
+                                      currentLesson.id,
+                                      teacher.id,
+                                      availability,
+                                      currentOrganization.id
+                                    );
+                                    await reloadLessons();
+                                  }}
+                                  className="w-4 h-4 text-green-600 rounded"
+                                />
+                                <School className="w-4 h-4 text-green-600" />
+                                <span className="text-sm">Aula</span>
+                              </label>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+                <p className="text-xs text-gray-500">
+                  💡 Assegna direttamente gli istruttori senza aspettare la loro disponibilità
+                </p>
+              </div>
+            )}
+
             {/* Recurring lesson options - only for new lessons */}
             {isCreatingNew && (
               <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg space-y-3">
@@ -863,6 +1088,70 @@ const AquaSync = () => {
 
                 {formData.isRecurring && (
                   <div className="space-y-3 pl-7">
+                    {/* Join existing series option */}
+                    <div className="p-3 bg-white/60 rounded border border-purple-200">
+                      <label className="block text-sm font-medium text-gray-800 mb-2">Modalità serie</label>
+                      <div className="flex flex-col gap-2">
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="seriesMode"
+                            checked={!formData.joinSeries}
+                            onChange={() => setFormData({ ...formData, joinSeries: false, joinSeriesId: null })}
+                          />
+                          <span>Crea nuova serie</span>
+                        </label>
+                        <label className="inline-flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="seriesMode"
+                            checked={!!formData.joinSeries}
+                            onChange={() => setFormData({ ...formData, joinSeries: true })}
+                          />
+                          <span>Unisci a serie esistente</span>
+                        </label>
+                        {formData.joinSeries && (
+                          <div className="mt-2">
+                            <label className="block text-sm text-gray-700 mb-1">Seleziona serie compatibile</label>
+                            <select
+                              value={formData.joinSeriesId || ''}
+                              onChange={e => setFormData({ ...formData, joinSeriesId: e.target.value })}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            >
+                              <option value="">-- scegli serie --</option>
+                              {(() => {
+                                const weekday = new Date(selectedDate).getDay();
+                                const seriesMap = new Map();
+                                Object.entries(lessons).forEach(([date, dayLs]) => {
+                                  if (new Date(date).getDay() !== weekday) return;
+                                  dayLs.forEach(l => {
+                                    if (!l.recurrence_id) return;
+                                    if (!seriesMap.has(l.recurrence_id)) {
+                                      seriesMap.set(l.recurrence_id, {
+                                        id: l.recurrence_id,
+                                        label: l.recurrence_label || 'Serie senza nome',
+                                        sampleTime: l.time,
+                                        firstDate: date,
+                                      });
+                                    } else {
+                                      const s = seriesMap.get(l.recurrence_id);
+                                      if (date < s.firstDate) s.firstDate = date;
+                                    }
+                                  });
+                                });
+                                return Array.from(seriesMap.values()).map(s => (
+                                  <option key={s.id} value={s.id}>
+                                    {s.label} – {s.sampleTime} (dal {new Date(s.firstDate).toLocaleDateString('it-IT')})
+                                  </option>
+                                ));
+                              })()}
+                            </select>
+                            <p className="text-xs text-gray-500 mt-1">Unire significa condividere il recurrence_id: future modifiche alla serie influenzeranno tutte le lezioni unite.</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
                     {/* Recurrence Label/Tag */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -871,87 +1160,79 @@ const AquaSync = () => {
                       <input
                         type="text"
                         value={formData.recurrenceLabel || ''}
-                        onChange={e =>
-                          setFormData({ ...formData, recurrenceLabel: e.target.value })
-                        }
+                        onChange={e => setFormData({ ...formData, recurrenceLabel: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
                         placeholder="es: Corso Base Lunedì, Allenamento Avanzato..."
                       />
-                      <p className="text-xs text-gray-500 mt-1">
-                        🏷️ Identifica facilmente questa serie di lezioni
-                      </p>
+                      <p className="text-xs text-gray-500 mt-1">🏷️ Identifica facilmente questa serie di lezioni</p>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Frequenza
-                        </label>
-                        <select
-                          value={formData.recurrenceType || 'weekly'}
-                          onChange={e =>
-                            setFormData({ ...formData, recurrenceType: e.target.value })
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
-                        >
-                          <option value="daily">Giornaliera</option>
-                          <option value="weekly">Settimanale</option>
-                          <option value="monthly">Mensile</option>
-                          <option value="yearly">Annuale</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Ogni</label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            min="1"
-                            max="12"
-                            value={formData.recurrenceInterval || 1}
-                            onChange={e =>
-                              setFormData({
-                                ...formData,
-                                recurrenceInterval: parseInt(e.target.value),
-                              })
-                            }
-                            className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
-                          />
-                          <span className="text-sm text-gray-600">
-                            {formData.recurrenceType === 'daily'
-                              ? 'giorni'
-                              : formData.recurrenceType === 'weekly'
-                                ? 'settimane'
-                                : formData.recurrenceType === 'monthly'
-                                  ? 'mesi'
-                                  : 'anni'}
-                          </span>
+                    {!formData.joinSeries && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Frequenza</label>
+                          <select
+                            value={formData.recurrenceType || 'weekly'}
+                            onChange={e => setFormData({ ...formData, recurrenceType: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                          >
+                            <option value="daily">Giornaliera</option>
+                            <option value="weekly">Settimanale</option>
+                            <option value="monthly">Mensile</option>
+                            <option value="yearly">Annuale</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Ogni</label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min="1"
+                              max="12"
+                              value={formData.recurrenceInterval || 1}
+                              onChange={e => {
+                                const interval = parseInt(e.target.value, 10);
+                                setFormData({
+                                  ...formData,
+                                  recurrenceInterval: isNaN(interval) || interval < 1 ? 1 : interval,
+                                });
+                              }}
+                              className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                            />
+                            <span className="text-sm text-gray-600">
+                              {formData.recurrenceType === 'daily'
+                                ? 'giorni'
+                                : formData.recurrenceType === 'weekly'
+                                  ? 'settimane'
+                                  : formData.recurrenceType === 'monthly'
+                                    ? 'mesi'
+                                    : 'anni'}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Termina il (opzionale)
-                      </label>
-                      <input
-                        type="date"
-                        value={formData.recurrenceEnd || ''}
-                        onChange={e => setFormData({ ...formData, recurrenceEnd: e.target.value })}
-                        min={selectedDate}
-                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Lascia vuoto per creare fino a 52 occorrenze
-                      </p>
-                    </div>
+                    {!formData.joinSeries && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Termina il (opzionale)</label>
+                        <input
+                          type="date"
+                          value={formData.recurrenceEnd || ''}
+                          onChange={e => setFormData({ ...formData, recurrenceEnd: e.target.value })}
+                          min={selectedDate}
+                          className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-sm"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Lascia vuoto per creare fino a 52 occorrenze</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
           </div>
         ) : (
-          <div className="space-y-4">
+          <div>
             {!hasLessons ? (
               <div className="text-center py-8 text-gray-500">
                 <Calendar className="w-16 h-16 mx-auto mb-4 text-gray-300" />
@@ -1106,6 +1387,7 @@ const AquaSync = () => {
   };
 
   // Functions for user management
+  // eslint-disable-next-line no-unused-vars
   const handleCreateUser = async () => {
     if (newUser.username && newUser.name) {
       const { data, error } = await createUser(newUser, currentOrganization.id);
@@ -1545,7 +1827,7 @@ const AquaSync = () => {
                     alto). A parità, chi ha la disponibilità più vecchia:
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {sortedByAvailability.map((instructor, index) => {
+                    {sortedByAvailability.map(instructor => {
                       const isWorst = worstInstructors.includes(instructor);
                       const isSecondTier = secondTierInstructors.includes(instructor);
 
@@ -1742,7 +2024,16 @@ const AquaSync = () => {
     };
 
     const handleEditLesson = lesson => {
+      // Set the date and the lesson to edit
       setSelectedDate(lesson.date);
+      setLessonToEdit(lesson);
+      // Wait for React to update, then scroll to the lesson panel
+      setTimeout(() => {
+        // Scroll to the lesson panel
+        document
+          .querySelector('.lg\\:col-span-1')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
     };
 
     const handleDeleteLesson = async lessonId => {
@@ -1760,7 +2051,7 @@ const AquaSync = () => {
       // Count how many lessons will be deleted
       const recurringLessons = [];
       let recurrenceLabel = null;
-      Object.entries(lessons).forEach(([dateKey, dayLessons]) => {
+      Object.entries(lessons).forEach(([, dayLessons]) => {
         dayLessons.forEach(lesson => {
           if (lesson.recurrence_id === recurrenceId) {
             recurringLessons.push(lesson);
@@ -2777,7 +3068,7 @@ const AquaSync = () => {
                 </div>
                 <div className="lg:col-span-1">
                   {selectedDate ? (
-                    <LessonPanel />
+                    <LessonPanel lessonToEdit={lessonToEdit} setLessonToEdit={setLessonToEdit} />
                   ) : (
                     <div className="bg-white rounded-xl shadow-lg p-6 text-center text-gray-500">
                       <Calendar className="w-16 h-16 mx-auto mb-4 text-gray-300" />
