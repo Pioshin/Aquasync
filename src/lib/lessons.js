@@ -258,16 +258,26 @@ export const updateTeacherAvailability = async (
   availability,
   organizationId
 ) => {
-  // First try to update existing availability
-  const { data: existingData } = await supabase
+  // Lookup existing availability rows for this lesson+teacher.
+  // Avoid .single() which can 406 when duplicates exist.
+  const { data: rows, error: selectError } = await supabase
     .from('teacher_availability')
     .select('id')
     .eq('lesson_id', lessonId)
-    .eq('teacher_id', teacherId)
-    .single();
+    .eq('teacher_id', teacherId);
 
-  if (existingData) {
-    // Update existing
+  if (selectError) {
+    console.error('select teacher_availability failed:', {
+      selectError,
+      lessonId,
+      teacherId,
+    });
+    return { data: null, error: selectError };
+  }
+
+  if (rows && rows.length > 0) {
+    // Update the first row, and optionally clean duplicates
+    const targetId = rows[0].id;
     const { data, error } = await supabase
       .from('teacher_availability')
       .update({
@@ -275,9 +285,28 @@ export const updateTeacherAvailability = async (
         classroom: availability.classroom,
         note: availability.note,
       })
-      .eq('id', existingData.id)
+      .eq('id', targetId)
       .select()
       .single();
+
+    if (error) {
+      console.error('update teacher_availability failed:', { error, targetId });
+    }
+
+    // If duplicates exist, remove extras to keep data consistent
+    if (rows.length > 1) {
+      const duplicateIds = rows.slice(1).map(r => r.id);
+      const { error: cleanupError } = await supabase
+        .from('teacher_availability')
+        .delete()
+        .in('id', duplicateIds);
+      if (cleanupError) {
+        console.warn('Failed to cleanup duplicate teacher_availability rows:', {
+          cleanupError,
+          duplicateIds,
+        });
+      }
+    }
 
     return { data, error };
   } else {
@@ -297,37 +326,31 @@ export const updateTeacherAvailability = async (
       .select()
       .single();
 
+    if (error) {
+      console.error('insert teacher_availability failed:', {
+        error,
+        lessonId,
+        teacherId,
+        availability,
+        organizationId,
+      });
+    }
+
     return { data, error };
   }
 };
 
-export const removeTeacherAvailability = async (lessonId, teacherName) => {
-  const { data: lesson, error: fetchError } = await supabase
-    .from('lessons')
-    .select(
-      `
-      teacher_availability (
-        id,
-        users (name)
-      )
-    `
-    )
-    .eq('id', lessonId)
-    .single();
+export const removeTeacherAvailability = async (lessonId, teacherId) => {
+  // Delete all availability records for this teacher in this lesson (also cleans duplicates)
+  const { error } = await supabase
+    .from('teacher_availability')
+    .delete()
+    .eq('lesson_id', lessonId)
+    .eq('teacher_id', teacherId);
 
-  if (fetchError || !lesson) {
-    return { error: fetchError };
+  if (error) {
+    console.error('removeTeacherAvailability failed:', { error, lessonId, teacherId });
   }
-
-  // Find the availability record for this teacher
-  const availability = lesson.teacher_availability.find(ta => ta.users.name === teacherName);
-
-  if (!availability) {
-    return { error: 'Teacher availability not found' };
-  }
-
-  // Delete the availability record
-  const { error } = await supabase.from('teacher_availability').delete().eq('id', availability.id);
 
   return { error };
 };
