@@ -1,0 +1,9 @@
+# Netlify configuration for AquaSync
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--legacy-peer-deps"
